@@ -2,6 +2,14 @@ import SwiftUI
 import AppKit
 import WorkbenchCore
 
+enum WorkbenchPalette {
+    static let warmWhite = Color(red: 247.0 / 255.0, green: 245.0 / 255.0, blue: 240.0 / 255.0)
+    static let graphite = Color(red: 37.0 / 255.0, green: 42.0 / 255.0, blue: 46.0 / 255.0)
+    static let sage = Color(red: 126.0 / 255.0, green: 146.0 / 255.0, blue: 131.0 / 255.0)
+}
+
+private typealias ContentPalette = WorkbenchPalette
+
 struct ContentView: View {
     @StateObject private var model = WorkbenchModel()
     @StateObject private var voice = VoiceInput()
@@ -11,16 +19,8 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    Color(nsColor: .windowBackgroundColor),
-                    Color.accentColor.opacity(0.035),
-                    Color(nsColor: .windowBackgroundColor)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            ContentPalette.warmWhite
+                .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 topBar
@@ -28,6 +28,8 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 1280, minHeight: 760)
+        .foregroundStyle(ContentPalette.graphite)
+        .tint(ContentPalette.sage)
         .onAppear {
             // 裸可执行文件启动的 GUI 应用：显式常规激活策略 + 激活，否则窗口收不到键盘输入
             NSApp.setActivationPolicy(.regular)
@@ -76,40 +78,27 @@ struct ContentView: View {
     private var topBar: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.accentColor, Color.accentColor.opacity(0.72)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                    Image(systemName: "square.stack.3d.up.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 32, height: 32)
-                .shadow(color: Color.accentColor.opacity(0.22), radius: 6, y: 3)
-                .accessibilityHidden(true)
-
                 VStack(alignment: .leading, spacing: 1) {
                     Text("平行工作台")
                         .font(.system(size: 15, weight: .semibold, design: .rounded))
                     Text("多模型同步工作区")
                         .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(ContentPalette.graphite.opacity(0.58))
                 }
 
                 Spacer()
 
                 Label("⌘↩ 发送", systemImage: "command")
                     .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(ContentPalette.graphite.opacity(0.62))
                     .padding(.horizontal, 9)
                     .padding(.vertical, 5)
-                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: Capsule())
-                    .overlay(Capsule().stroke(Color(nsColor: .separatorColor).opacity(0.45)))
+                    .background(ContentPalette.graphite.opacity(0.035), in: Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(ContentPalette.graphite.opacity(0.12))
+                            .allowsHitTesting(false)
+                    )
             }
 
             // 主战场：大输入框 + 大发送按钮
@@ -117,24 +106,25 @@ struct ContentView: View {
                 TextField("输入问题（Enter 换行，⌘↩ 或点「发送」同步到所有勾选的模型）", text: $model.question, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(ContentPalette.graphite)
                     .lineLimit(2...4)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 11)
                     .background(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color(nsColor: .textBackgroundColor).opacity(0.96))
+                            .fill(ContentPalette.warmWhite)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .stroke(
-                                inputFocused ? Color.accentColor.opacity(0.78) : Color(nsColor: .separatorColor).opacity(0.55),
+                                inputFocused ? ContentPalette.sage.opacity(0.82) : ContentPalette.graphite.opacity(0.18),
                                 lineWidth: inputFocused ? 1.5 : 1
                             )
+                            .allowsHitTesting(false)
                     )
                     .shadow(
-                        color: inputFocused ? Color.accentColor.opacity(0.14) : Color.black.opacity(0.045),
-                        radius: inputFocused ? 8 : 4,
-                        y: 2
+                        color: inputFocused ? ContentPalette.sage.opacity(0.13) : ContentPalette.graphite.opacity(0),
+                        radius: inputFocused ? 5 : 0
                     )
                     .focused($inputFocused)
                     .animation(.easeOut(duration: 0.16), value: inputFocused)
@@ -143,7 +133,7 @@ struct ContentView: View {
                     Image(systemName: voice.isRecording ? "stop.fill" : "mic.fill")
                         .font(.system(size: 16, weight: .semibold))
                 }
-                .buttonStyle(WorkbenchIconButtonStyle(tint: voice.isRecording ? .red : .accentColor, selected: voice.isRecording))
+                .buttonStyle(WorkbenchIconButtonStyle(tint: ContentPalette.sage, selected: voice.isRecording))
                 .help(voice.isRecording ? "停止录音" : "语音输入（点击开始，再次点击结束）")
 
                 Button(action: { model.send() }) {
@@ -162,7 +152,7 @@ struct ContentView: View {
                 HStack {
                     statusPill(
                         voice.statusText,
-                        color: voice.isRecording ? .red : .secondary,
+                        color: voice.isRecording ? ContentPalette.sage : ContentPalette.graphite,
                         systemImage: voice.isRecording ? "waveform" : "mic"
                     )
                     Spacer()
@@ -176,7 +166,7 @@ struct ContentView: View {
                         Label("附件", systemImage: "paperclip")
                             .font(.caption.weight(.medium))
                     }
-                    .buttonStyle(WorkbenchSoftButtonStyle(tint: .accentColor))
+                    .buttonStyle(WorkbenchSoftButtonStyle(tint: ContentPalette.sage))
 
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
@@ -184,26 +174,30 @@ struct ContentView: View {
                                 HStack(spacing: 5) {
                                     Image(systemName: "doc.fill")
                                         .font(.caption2)
-                                        .foregroundStyle(Color.accentColor)
+                                        .foregroundStyle(ContentPalette.sage)
                                     Text(att.name)
                                         .font(.caption.weight(.medium))
                                         .lineLimit(1)
                                     Text(formatBytes(att.size))
                                         .font(.caption2)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(ContentPalette.graphite.opacity(0.58))
                                     Button(action: { model.removeAttachment(id: att.id) }) {
                                         Image(systemName: "xmark.circle.fill")
                                             .font(.caption)
                                     }
                                     .buttonStyle(.borderless)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(ContentPalette.graphite.opacity(0.55))
                                     .help("移除 \(att.name)")
                                 }
                                 .padding(.leading, 9)
                                 .padding(.trailing, 6)
                                 .padding(.vertical, 5)
-                                .background(Color.accentColor.opacity(0.075), in: Capsule())
-                                .overlay(Capsule().stroke(Color.accentColor.opacity(0.16)))
+                                .background(ContentPalette.sage.opacity(0.09), in: Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .stroke(ContentPalette.sage.opacity(0.2))
+                                        .allowsHitTesting(false)
+                                )
                             }
                         }
                     }
@@ -212,7 +206,7 @@ struct ContentView: View {
 
                     Text("可拖入文件 / 图片，或 ⌘V 粘贴图片")
                         .font(.caption2)
-                        .foregroundStyle(Color.secondary.opacity(0.78))
+                        .foregroundStyle(ContentPalette.graphite.opacity(0.5))
                         .fixedSize()
                 }
             }
@@ -236,7 +230,7 @@ struct ContentView: View {
 
                         Text(model.pageIndicator)
                             .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(ContentPalette.graphite.opacity(0.62))
                             .monospacedDigit()
                             .frame(minWidth: 30)
 
@@ -248,8 +242,12 @@ struct ContentView: View {
                         .help("下一页窗格")
                     }
                     .padding(3)
-                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.78), in: Capsule())
-                    .overlay(Capsule().stroke(Color(nsColor: .separatorColor).opacity(0.45)))
+                    .background(ContentPalette.graphite.opacity(0.035), in: Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(ContentPalette.graphite.opacity(0.12))
+                            .allowsHitTesting(false)
+                    )
                 }
 
                 if let f = model.focusedID {
@@ -257,7 +255,7 @@ struct ContentView: View {
                         Label("退出放大", systemImage: "arrow.down.right.and.arrow.up.left")
                             .font(.caption.weight(.medium))
                     }
-                    .buttonStyle(WorkbenchSoftButtonStyle(tint: .accentColor))
+                    .buttonStyle(WorkbenchSoftButtonStyle(tint: ContentPalette.sage))
                 }
 
                 Spacer(minLength: 8)
@@ -265,37 +263,37 @@ struct ContentView: View {
                 // 版本更新区
                 if let v = model.updateAvailable {
                     Button("更新到 v\(v)") { model.performUpdate() }
-                        .buttonStyle(WorkbenchSoftButtonStyle(tint: .accentColor, emphasized: true))
+                        .buttonStyle(WorkbenchSoftButtonStyle(tint: ContentPalette.sage, emphasized: true))
                         .disabled(model.updating)
                     if !model.updateStatus.isEmpty {
-                        statusPill(model.updateStatus, color: .blue, systemImage: "arrow.down.circle")
+                        statusPill(model.updateStatus, color: ContentPalette.sage, systemImage: "arrow.down.circle")
                     }
                 } else {
                     Button("检查更新") { model.checkForUpdates(manual: true) }
                         .buttonStyle(WorkbenchTextButtonStyle())
                     if !model.updateStatus.isEmpty {
-                        statusPill(model.updateStatus, color: .secondary, systemImage: "checkmark.circle")
+                        statusPill(model.updateStatus, color: ContentPalette.graphite, systemImage: "checkmark.circle")
                     }
                 }
 
                 if !model.loginProgress.isEmpty {
-                    statusPill(model.loginProgress, color: .orange, systemImage: "person.crop.circle.badge.clock")
+                    statusPill(model.loginProgress, color: ContentPalette.sage, systemImage: "person.crop.circle.badge.clock")
                 }
                 if !model.statusText.isEmpty {
-                    statusPill(model.statusText, color: .secondary, systemImage: "info.circle")
+                    statusPill(model.statusText, color: ContentPalette.graphite, systemImage: "info.circle")
                 }
             }
         }
         .padding(.horizontal, 14)
         .padding(.top, 10)
         .padding(.bottom, 11)
-        .background(.ultraThinMaterial)
+        .background(ContentPalette.warmWhite.opacity(0.98))
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(Color(nsColor: .separatorColor).opacity(0.48))
+                .fill(ContentPalette.graphite.opacity(0.13))
                 .frame(height: 1)
+                .allowsHitTesting(false)
         }
-        .shadow(color: Color.black.opacity(0.045), radius: 9, y: 3)
         .zIndex(1)
     }
 
@@ -305,21 +303,21 @@ struct ContentView: View {
                 VStack(spacing: 12) {
                     Image(systemName: "square.stack.3d.up.slash")
                         .font(.system(size: 30, weight: .light))
-                        .foregroundStyle(Color.accentColor.opacity(0.72))
+                        .foregroundStyle(ContentPalette.sage.opacity(0.76))
                     Text("尚未选择模型")
                         .font(.title3.weight(.semibold))
                     Text("在上方选择要参与显示和发送的平台")
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(ContentPalette.graphite.opacity(0.58))
                 }
                 .padding(.horizontal, 34)
                 .padding(.vertical, 28)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(ContentPalette.warmWhite, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color(nsColor: .separatorColor).opacity(0.45))
+                        .stroke(ContentPalette.graphite.opacity(0.14))
+                        .allowsHitTesting(false)
                 )
-                .shadow(color: Color.black.opacity(0.055), radius: 14, y: 6)
                 .frame(width: geo.size.width, height: geo.size.height)
             } else {
                 // 每 pane 最小 420px（更窄会触发平台响应式布局、输入框消失）
@@ -355,7 +353,11 @@ struct ContentView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(color.opacity(0.09), in: Capsule())
-            .overlay(Capsule().stroke(color.opacity(0.16)))
+            .overlay(
+                Capsule()
+                    .stroke(color.opacity(0.16))
+                    .allowsHitTesting(false)
+            )
     }
 
     private func formatBytes(_ n: Int) -> String {
@@ -378,27 +380,19 @@ private struct WorkbenchPrimaryButtonBody: View {
 
     var body: some View {
         configuration.label
-            .foregroundStyle(.white)
+            .foregroundStyle(ContentPalette.warmWhite)
             .padding(.horizontal, 23)
             .frame(height: 46)
             .background(
-                LinearGradient(
-                    colors: [Color.accentColor, Color.accentColor.opacity(0.74)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
+                ContentPalette.sage.opacity(isHovered ? 1 : 0.92),
                 in: RoundedRectangle(cornerRadius: 13, style: .continuous)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .stroke(Color.white.opacity(isHovered ? 0.24 : 0.12))
+                    .stroke(ContentPalette.graphite.opacity(isHovered ? 0.18 : 0.1))
+                    .allowsHitTesting(false)
             )
-            .shadow(
-                color: Color.accentColor.opacity(isEnabled ? (isHovered ? 0.28 : 0.19) : 0),
-                radius: isHovered ? 10 : 7,
-                y: isHovered ? 5 : 3
-            )
-            .scaleEffect(configuration.isPressed ? 0.965 : (isHovered ? 1.018 : 1))
+            .scaleEffect(configuration.isPressed ? 0.975 : (isHovered ? 1.01 : 1))
             .opacity(isEnabled ? 1 : 0.48)
             .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
             .animation(.easeOut(duration: 0.16), value: isHovered)
@@ -427,15 +421,15 @@ private struct WorkbenchIconButtonBody: View {
             .foregroundStyle(tint)
             .frame(width: 46, height: 46)
             .background(
-                (selected ? tint.opacity(0.14) : Color(nsColor: .controlBackgroundColor).opacity(isHovered ? 0.96 : 0.78)),
+                (selected ? tint.opacity(0.16) : ContentPalette.graphite.opacity(isHovered ? 0.07 : 0.035)),
                 in: RoundedRectangle(cornerRadius: 13, style: .continuous)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .stroke((selected || isHovered) ? tint.opacity(0.32) : Color(nsColor: .separatorColor).opacity(0.5))
+                    .stroke((selected || isHovered) ? tint.opacity(0.34) : ContentPalette.graphite.opacity(0.14))
+                    .allowsHitTesting(false)
             )
-            .shadow(color: Color.black.opacity(isHovered ? 0.08 : 0.035), radius: isHovered ? 7 : 3, y: 2)
-            .scaleEffect(configuration.isPressed ? 0.94 : (isHovered ? 1.025 : 1))
+            .scaleEffect(configuration.isPressed ? 0.95 : (isHovered ? 1.015 : 1))
             .opacity(isEnabled ? 1 : 0.45)
             .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
             .animation(.easeOut(duration: 0.16), value: isHovered)
@@ -462,7 +456,7 @@ private struct WorkbenchSoftButtonBody: View {
     var body: some View {
         configuration.label
             .font(.caption.weight(.medium))
-            .foregroundStyle(emphasized ? Color.white : tint)
+            .foregroundStyle(emphasized ? ContentPalette.warmWhite : tint)
             .padding(.horizontal, 10)
             .frame(height: 28)
             .background(
@@ -471,7 +465,8 @@ private struct WorkbenchSoftButtonBody: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(emphasized ? Color.white.opacity(0.15) : tint.opacity(isHovered ? 0.3 : 0.18))
+                    .stroke(emphasized ? ContentPalette.graphite.opacity(0.12) : tint.opacity(isHovered ? 0.3 : 0.18))
+                    .allowsHitTesting(false)
             )
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
             .opacity(isEnabled ? 1 : 0.45)
@@ -485,11 +480,11 @@ private struct WorkbenchTextButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.caption.weight(.medium))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(ContentPalette.graphite.opacity(0.62))
             .padding(.horizontal, 7)
             .padding(.vertical, 5)
             .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .background(Color.secondary.opacity(configuration.isPressed ? 0.12 : 0), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .background(ContentPalette.graphite.opacity(configuration.isPressed ? 0.1 : 0), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
     }
 }
@@ -498,9 +493,9 @@ private struct WorkbenchMiniIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(ContentPalette.graphite.opacity(0.62))
             .frame(width: 24, height: 24)
-            .background(Color.primary.opacity(configuration.isPressed ? 0.09 : 0), in: Circle())
+            .background(ContentPalette.graphite.opacity(configuration.isPressed ? 0.09 : 0), in: Circle())
             .scaleEffect(configuration.isPressed ? 0.9 : 1)
             .opacity(configuration.isPressed ? 0.75 : 1)
     }
@@ -524,17 +519,18 @@ private struct WorkbenchPlatformToggleBody: View {
                 configuration.label
                     .font(.caption.weight(.medium))
             }
-            .foregroundStyle(configuration.isOn ? Color.accentColor : Color.secondary)
+            .foregroundStyle(configuration.isOn ? ContentPalette.sage : ContentPalette.graphite.opacity(0.62))
             .padding(.horizontal, 9)
             .frame(height: 27)
             .background(
-                configuration.isOn ? Color.accentColor.opacity(isHovered ? 0.14 : 0.095) : Color(nsColor: .controlBackgroundColor).opacity(isHovered ? 0.94 : 0.68),
+                configuration.isOn ? ContentPalette.sage.opacity(isHovered ? 0.16 : 0.11) : ContentPalette.graphite.opacity(isHovered ? 0.07 : 0.035),
                 in: Capsule()
             )
             .overlay(
                 Capsule().stroke(
-                    configuration.isOn ? Color.accentColor.opacity(isHovered ? 0.36 : 0.23) : Color(nsColor: .separatorColor).opacity(0.45)
+                    configuration.isOn ? ContentPalette.sage.opacity(isHovered ? 0.38 : 0.25) : ContentPalette.graphite.opacity(0.14)
                 )
+                .allowsHitTesting(false)
             )
             .animation(.easeOut(duration: 0.15), value: configuration.isOn)
             .animation(.easeOut(duration: 0.15), value: isHovered)

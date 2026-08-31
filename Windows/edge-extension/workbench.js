@@ -1,4 +1,4 @@
-// 工作台页面：与 macOS 版对齐 —— 平台勾选（参与显示与发送）、最多同时显示 3 个窗格
+// 工作台页面：与 macOS 版对齐 —— 平台勾选（参与显示与发送）、按窗口宽度同时显示 1–3 个窗格
 // （超出分页导航）、发送给全部勾选平台（不可见的窗格以离屏方式保持活跃）、错误可见化。
 (async () => {
   const adapters = await fetch(chrome.runtime.getURL('lib/adapters/index.json')).then(r => r.json());
@@ -55,6 +55,12 @@
   });
 
   const enabledList = () => adapters.filter(a => enabled.has(a.id));
+  const visibleCapacity = () => {
+    const width = panesEl.clientWidth || window.innerWidth;
+    if (width >= 1200) return MAX_VISIBLE;
+    if (width >= 800) return 2;
+    return 1;
+  };
 
   // —— 勾选框 ——
   function renderChecks() {
@@ -67,7 +73,7 @@
       cb.checked = enabled.has(a.id);
       cb.addEventListener('change', () => {
         if (cb.checked) enabled.add(a.id); else enabled.delete(a.id);
-        windowStart = Math.min(windowStart, Math.max(enabledList().length - MAX_VISIBLE, 0));
+        windowStart = Math.min(windowStart, Math.max(enabledList().length - visibleCapacity(), 0));
         renderPanes();
       });
       const span = document.createElement('span');
@@ -134,8 +140,9 @@
   // 翻页布局：只改 CSS，绝不 remove/append iframe；重挂 DOM 会销毁浏览上下文。
   function layoutPanes() {
     const list = enabledList();
-    const start = Math.min(windowStart, Math.max(list.length - MAX_VISIBLE, 0));
-    const visibleIds = new Set(list.slice(start, start + MAX_VISIBLE).map(a => a.id));
+    const capacity = visibleCapacity();
+    const start = Math.min(windowStart, Math.max(list.length - capacity, 0));
+    const visibleIds = new Set(list.slice(start, start + capacity).map(a => a.id));
     for (let index = 0; index < list.length; index += 1) {
       const a = list[index];
       const p = frames[a.id];
@@ -154,17 +161,26 @@
 
   function updatePaging() {
     const n = enabledList().length;
-    const show = n > MAX_VISIBLE;
+    const capacity = visibleCapacity();
+    const show = n > capacity;
     pagingEl.style.display = show ? '' : 'none';
     if (!show) return;
-    const start = Math.min(windowStart, Math.max(n - MAX_VISIBLE, 0));
-    pageIndEl.textContent = `${start + 1}-${Math.min(start + MAX_VISIBLE, n)} / ${n}`;
+    const start = Math.min(windowStart, Math.max(n - capacity, 0));
+    pageIndEl.textContent = `${start + 1}-${Math.min(start + capacity, n)} / ${n}`;
     pageLeftEl.disabled = windowStart === 0;
-    pageRightEl.disabled = windowStart >= n - MAX_VISIBLE;
+    pageRightEl.disabled = windowStart >= n - capacity;
   }
 
   pageLeftEl.addEventListener('click', () => { windowStart = Math.max(0, windowStart - 1); layoutPanes(); });
   pageRightEl.addEventListener('click', () => { windowStart += 1; layoutPanes(); });
+  let resizeFrame = 0;
+  window.addEventListener('resize', () => {
+    cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(() => {
+      windowStart = Math.min(windowStart, Math.max(enabledList().length - visibleCapacity(), 0));
+      layoutPanes();
+    });
+  });
 
   // —— 附件交互 ——
   function renderChips() {

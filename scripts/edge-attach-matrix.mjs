@@ -3,11 +3,12 @@
 // - cdp 平台（无选择器）：WB_ATTACH CDP 拖放路径
 // 证据：drop 事件监听（files/name/trusted）、帧 body 是否出现文件名（平台接受并展示上传卡）、
 //       document.hasFocus()（检测点击 openSelector 是否弹出了原生文件对话框）。
-// 前置：Edge 以 --load-extension=Windows/edge-extension --remote-debugging-port=9223 运行（见 edge-e2e.mjs）。
+// 前置：Edge 以 --load-extension=Windows/edge-extension --remote-debugging-port=9223 --no-startup-window 运行（见 edge-e2e.mjs）。
 // 用法：node scripts/edge-attach-matrix.mjs [扩展ID] [--full]
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assertCleanWorkbenchTargets, ensureSingleWorkbenchPage } from './edge-workbench-target.mjs';
 
 const EXT_ID = process.argv[2] || 'eeppnjgcjioaohaaoaknkkafhodccmmf';
 const FULL = process.argv.includes('--full');
@@ -47,21 +48,14 @@ const adapters = readdirSync(adaptersDir).filter(f => f.endsWith('.json') && f !
 const byId = Object.fromEntries(adapters.map(a => [a.id, a]));
 console.log(`适配器: ${adapters.map(a => a.id).join(', ')}`);
 
-// —— 1. 工作台页面 ——
-let page = null;
-{
-  const ts = await (await fetch(`http://127.0.0.1:${PORT}/json`)).json();
-  page = ts.find(t => t.type === 'page' && t.url.includes('workbench'));
+// —— 1. 工作台页面：复用同一 target，禁止遗留 blank/blocked/重复工作台 ——
+let page;
+try {
+  page = await ensureSingleWorkbenchPage({ port: PORT, extId: EXT_ID });
+} catch (error) {
+  console.log(`❌ ${error.message}`);
+  process.exit(1);
 }
-if (!page) {
-  await fetch(`http://127.0.0.1:${PORT}/json/new?chrome-extension%3A%2F%2F${EXT_ID}%2Fworkbench.html`, { method: 'PUT' }).catch(() => {});
-  for (let i = 0; i < 25 && !page; i++) {
-    await sleep(1000);
-    const ts = await (await fetch(`http://127.0.0.1:${PORT}/json`)).json();
-    page = ts.find(t => t.type === 'page' && t.url.includes('workbench'));
-  }
-}
-if (!page) { console.log('❌ 工作台页面未就绪'); process.exit(1); }
 // 激活到前台（避免后台标签页定时器节流影响注入/探测）
 await fetch(`http://127.0.0.1:${PORT}/json/activate/${page.id}`, { method: 'PUT' }).catch(() => {});
 console.log('工作台页面就绪');
@@ -324,3 +318,4 @@ if (FULL) {
 }
 
 console.log('\n完成');
+await assertCleanWorkbenchTargets({ port: PORT, extId: EXT_ID });

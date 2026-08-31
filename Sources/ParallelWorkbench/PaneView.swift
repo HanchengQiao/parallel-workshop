@@ -2,6 +2,8 @@ import SwiftUI
 import WebKit
 import WorkbenchCore
 
+private typealias PanePalette = WorkbenchPalette
+
 /// 单个模型窗格视图：标题栏（平台名+状态+操作）+ WKWebView + 发送反馈提示。
 struct PaneView: View {
     @ObservedObject var controller: PaneController
@@ -13,7 +15,7 @@ struct PaneView: View {
         VStack(spacing: 0) {
             headerBar
             Rectangle()
-                .fill(Color(nsColor: .separatorColor).opacity(0.42))
+                .fill(PanePalette.graphite.opacity(0.13))
                 .frame(height: 1)
                 .allowsHitTesting(false)
             ZStack(alignment: .topTrailing) {
@@ -25,14 +27,14 @@ struct PaneView: View {
                         .font(.caption.weight(.medium))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(.regularMaterial, in: Capsule())
+                        .background(PanePalette.warmWhite.opacity(0.96), in: Capsule())
                         .overlay(
                             Capsule()
-                                .stroke(Color.white.opacity(0.18))
+                                .stroke(PanePalette.graphite.opacity(0.14))
                                 .allowsHitTesting(false)
                         )
-                        .foregroundStyle(.primary)
-                        .shadow(color: Color.black.opacity(0.16), radius: 8, y: 3)
+                        .foregroundStyle(PanePalette.graphite)
+                        .shadow(color: PanePalette.graphite.opacity(0.08), radius: 5, y: 2)
                         .padding(10)
                         .allowsHitTesting(false)
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -54,16 +56,16 @@ struct PaneView: View {
                         Spacer()
                         Label("在此窗格内登录，放大后操作更方便", systemImage: "person.crop.circle.badge.exclamationmark")
                             .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(PanePalette.graphite.opacity(0.68))
                             .padding(.horizontal, 11)
                             .padding(.vertical, 7)
-                            .background(.regularMaterial, in: Capsule())
+                            .background(PanePalette.warmWhite.opacity(0.96), in: Capsule())
                             .overlay(
                                 Capsule()
-                                    .stroke(Color.orange.opacity(0.2))
+                                    .stroke(PanePalette.sage.opacity(0.24))
                                     .allowsHitTesting(false)
                             )
-                            .shadow(color: Color.black.opacity(0.09), radius: 8, y: 3)
+                            .shadow(color: PanePalette.graphite.opacity(0.06), radius: 5, y: 2)
                             .padding(10)
                             .allowsHitTesting(false)
                     }
@@ -72,21 +74,21 @@ struct PaneView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 15, style: .continuous)
-                .fill(Color(nsColor: .textBackgroundColor))
+                .fill(PanePalette.warmWhite)
                 .allowsHitTesting(false)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 15, style: .continuous)
                 .stroke(
-                    focused ? Color.accentColor.opacity(0.72) : Color(nsColor: .separatorColor).opacity(isHovered ? 0.67 : 0.46),
+                    focused ? PanePalette.sage.opacity(0.78) : PanePalette.graphite.opacity(isHovered ? 0.22 : 0.14),
                     lineWidth: focused ? 1.6 : 1
                 )
                 .allowsHitTesting(false)
         )
         .shadow(
-            color: focused ? Color.accentColor.opacity(0.16) : Color.black.opacity(isHovered ? 0.105 : 0.065),
-            radius: focused ? 13 : (isHovered ? 11 : 8),
-            y: isHovered ? 5 : 3
+            color: focused ? PanePalette.sage.opacity(0.1) : PanePalette.graphite.opacity(isHovered ? 0.065 : 0.035),
+            radius: focused ? 7 : (isHovered ? 6 : 4),
+            y: isHovered ? 3 : 2
         )
         .animation(.easeOut(duration: 0.18), value: focused)
         .animation(.easeOut(duration: 0.18), value: isHovered)
@@ -113,7 +115,7 @@ struct PaneView: View {
 
             Text(controller.adapter.name)
                 .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(.primary)
+                .foregroundStyle(PanePalette.graphite)
 
             statusBadge
 
@@ -130,7 +132,7 @@ struct PaneView: View {
                 Button(action: { controller.resetZoom() }) {
                     Text("\(Int((controller.zoom * 100).rounded()))%")
                         .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(PanePalette.graphite.opacity(0.62))
                         .monospacedDigit()
                         .frame(minWidth: 36)
                 }
@@ -146,12 +148,12 @@ struct PaneView: View {
             .padding(2)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
+                    .fill(PanePalette.graphite.opacity(0.035))
                     .allowsHitTesting(false)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color(nsColor: .separatorColor).opacity(0.4))
+                    .stroke(PanePalette.graphite.opacity(0.12))
                     .allowsHitTesting(false)
             )
 
@@ -160,21 +162,21 @@ struct PaneView: View {
                       ? "arrow.down.right.and.arrow.up.left"
                       : "arrow.up.left.and.arrow.down.right")
             }
-            .buttonStyle(PaneIconButtonStyle(tint: focused ? .accentColor : .secondary, selected: focused))
+            .buttonStyle(PaneIconButtonStyle(tint: focused ? PanePalette.sage : PanePalette.graphite.opacity(0.62), selected: focused))
             .help(focused ? "退出放大" : "放大此窗口（登录/阅读）")
 
             if controller.status != .ready {
                 Button(action: { controller.reload() }) {
                     Image(systemName: "arrow.clockwise")
                 }
-                .buttonStyle(PaneIconButtonStyle(tint: .secondary))
+                .buttonStyle(PaneIconButtonStyle(tint: PanePalette.graphite.opacity(0.62)))
                 .help("重新加载该窗口")
             }
         }
         .padding(.leading, 9)
         .padding(.trailing, 7)
         .padding(.vertical, 6)
-        .background(.ultraThinMaterial)
+        .background(PanePalette.warmWhite.opacity(0.98))
     }
 
     private var statusBadge: some View {
@@ -198,18 +200,18 @@ struct PaneView: View {
 
     private var badgeColor: Color {
         switch controller.status {
-        case .loading: return .gray
-        case .ready: return .green
-        case .loggedOut: return .orange
-        case .challenge: return .red
-        case .inputMissing: return .purple
-        case .unreachable: return .red
+        case .loading: return PanePalette.graphite.opacity(0.48)
+        case .ready: return PanePalette.sage
+        case .loggedOut: return PanePalette.sage.opacity(0.72)
+        case .challenge: return PanePalette.graphite.opacity(0.9)
+        case .inputMissing: return PanePalette.graphite.opacity(0.7)
+        case .unreachable: return PanePalette.graphite
         }
     }
 }
 
 private struct PaneIconButtonStyle: ButtonStyle {
-    var tint: Color = .secondary
+    var tint: Color = PanePalette.graphite.opacity(0.62)
     var selected = false
 
     func makeBody(configuration: Configuration) -> some View {
@@ -230,7 +232,7 @@ private struct PaneIconButtonBody: View {
             .foregroundStyle(tint)
             .frame(width: 27, height: 25)
             .background(
-                selected ? tint.opacity(0.13) : Color.primary.opacity(isHovered ? 0.065 : 0),
+                selected ? tint.opacity(0.15) : PanePalette.graphite.opacity(isHovered ? 0.065 : 0),
                 in: RoundedRectangle(cornerRadius: 7, style: .continuous)
             )
             .overlay(
@@ -251,7 +253,7 @@ private struct PaneZoomButtonStyle: ButtonStyle {
         configuration.label
             .padding(.vertical, 4)
             .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-            .background(Color.primary.opacity(configuration.isPressed ? 0.07 : 0), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .background(PanePalette.graphite.opacity(configuration.isPressed ? 0.07 : 0), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
     }
 }
@@ -268,11 +270,10 @@ private struct PaneAccentButtonBody: View {
 
     var body: some View {
         configuration.label
-            .foregroundStyle(.white)
+            .foregroundStyle(PanePalette.warmWhite)
             .padding(.horizontal, 11)
             .frame(height: 30)
-            .background(Color.accentColor.opacity(isHovered ? 1 : 0.9), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .shadow(color: Color.accentColor.opacity(isHovered ? 0.26 : 0.16), radius: isHovered ? 8 : 5, y: 3)
+            .background(PanePalette.sage.opacity(isHovered ? 1 : 0.92), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.95 : 1)
             .animation(.easeOut(duration: 0.13), value: configuration.isPressed)
             .animation(.easeOut(duration: 0.15), value: isHovered)

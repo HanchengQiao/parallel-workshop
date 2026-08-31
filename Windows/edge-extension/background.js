@@ -1,11 +1,45 @@
 // 后台：点击图标打开工作台窗口；按需把 content.js 精准注入各平台 frame
-chrome.action.onClicked.addListener(() => {
-  // action 回调只会在扩展注册完成后触发，可直接打开工作台；不要展示 blank 预热页。
-  chrome.windows.create({
-    url: chrome.runtime.getURL('workbench.html'),
+const WORKBENCH_URL = chrome.runtime.getURL('workbench.html');
+const REUSABLE_EMPTY_URLS = new Set([
+  'about:blank',
+  'edge://newtab/',
+  'edge://new-tab-page/',
+  'chrome://newtab/',
+  'chrome://new-tab-page/'
+]);
+
+function isReusableEmptyTab(tab) {
+  const url = tab?.pendingUrl || tab?.url || '';
+  return Number.isInteger(tab?.id) && REUSABLE_EMPTY_URLS.has(url);
+}
+
+async function openWorkbenchFromAction(tab) {
+  // 用户若正停在浏览器自动生成的空白/新标签页，就原地替换它，避免留下“空白页 + 工作台”双标签。
+  if (isReusableEmptyTab(tab)) {
+    await chrome.tabs.update(tab.id, { url: WORKBENCH_URL, active: true });
+    if (Number.isInteger(tab.windowId)) {
+      await chrome.windows.update(tab.windowId, { focused: true });
+    }
+    return;
+  }
+
+  await chrome.windows.create({
+    url: WORKBENCH_URL,
     type: 'popup',
     width: 1500,
     height: 950
+  });
+}
+
+chrome.action.onClicked.addListener((tab) => {
+  openWorkbenchFromAction(tab).catch(() => {
+    // 标签可能在点击后被用户关闭；此时退回直接创建工作台，不引入预热或固定延迟。
+    chrome.windows.create({
+      url: WORKBENCH_URL,
+      type: 'popup',
+      width: 1500,
+      height: 950
+    });
   });
 });
 
@@ -15,7 +49,6 @@ const HOSTS = [
   'yiyan.baidu.com', 'wenxin.baidu.com', 'chatgpt.com', 'chat.openai.com'
 ];
 
-const WORKBENCH_URL = chrome.runtime.getURL('workbench.html');
 const CHANNEL_PREFIX = 'wb-channel-';
 const WORKBENCH_TABS_KEY = 'wb-workbench-tabs';
 const FRAME_RULE_ID = 9001;

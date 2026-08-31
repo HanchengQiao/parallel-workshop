@@ -5,11 +5,12 @@
 //     --user-data-dir=/tmp/wb-edge-live \
 //     --disable-extensions-except="$(cd Windows/edge-extension && pwd)" \
 //     --load-extension="$(cd Windows/edge-extension && pwd)" \
-//     --remote-debugging-port=9223 --no-first-run about:blank &
-// 然后：curl -s -X PUT "http://127.0.0.1:9223/json/new?chrome-extension%3A%2F%2F<扩展ID>%2Fworkbench.html"
+//     --remote-debugging-port=9223 --no-first-run --no-startup-window &
+// 然后直接运行本脚本：它只创建或复用一个 target，竞态重试不会新增标签。
 // 默认只做无副作用回归；显式加 --send 才向文心单个平台发送测试消息。
 // 用法：node scripts/edge-e2e.mjs <扩展ID> [--send]
 import { readFileSync } from 'node:fs';
+import { assertCleanWorkbenchTargets, cdpCommand, ensureSingleWorkbenchPage } from './edge-workbench-target.mjs';
 
 const EXT_ID = process.argv[2] || 'eeppnjgcjioaohaaoaknkkafhodccmmf';
 const SEND = process.argv.includes('--send');
@@ -18,29 +19,22 @@ const BASE = process.env.PWB_BASE || decodeURIComponent(new URL('..', import.met
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 async function cdp(wsUrl, expression) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl);
-    ws.onopen = () => ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression, returnByValue: true, awaitPromise: true } }));
-    ws.onmessage = (e) => {
-      const m = JSON.parse(e.data);
-      if (m.id === 1) { ws.close(); resolve(m.result?.result?.value); }
-    };
-    ws.onerror = () => reject(new Error('ws error'));
-    setTimeout(() => reject(new Error('cdp timeout')), 20000);
-  });
+  const result = await cdpCommand(wsUrl, 'Runtime.evaluate', {
+    expression,
+    returnByValue: true,
+    awaitPromise: true
+  }, 20000);
+  return result?.result?.value;
 }
 
-// 页面创建重试：导航与扩展注册存在竞态（被 blank），重试最多 3 次
-let page = null;
-for (let attempt = 0; attempt < 3 && !page; attempt++) {
-  await fetch(`http://127.0.0.1:${PORT}/json/new?chrome-extension%3A%2F%2F${EXT_ID}%2Fworkbench.html`, { method: 'PUT' }).catch(() => {});
-  for (let i = 0; i < 20 && !page; i++) {
-    await sleep(1500);
-    const targets = await (await fetch(`http://127.0.0.1:${PORT}/json`)).json();
-    page = targets.find(t => t.type === 'page' && t.url.includes('workbench') && !t.url.includes('blocked'));
-  }
+// 页面创建/复用：若浏览器已有空白 target 就原地导航；若没有只创建一次，所有竞态重试复用同一 target。
+let page;
+try {
+  page = await ensureSingleWorkbenchPage({ port: PORT, extId: EXT_ID });
+} catch (error) {
+  console.log(`❌ ${error.message}`);
+  process.exit(1);
 }
-if (!page) { console.log('❌ 工作台页面未就绪（3 次重试后仍被 blank），请检查扩展是否加载'); process.exit(1); }
 
 // 0) 页面就绪轮询（全新 profile 下 5 个重 iframe 加载慢，页面可能尚未渲染完成）
 let stable = false;
@@ -57,10 +51,24 @@ const ui = JSON.parse(await cdp(page.webSocketDebuggerUrl, `JSON.stringify({
   visiblePanes: document.querySelectorAll('.pane:not(.offscreen)').length,
   allPanes: document.querySelectorAll('.pane').length,
   pageInd: document.getElementById('page-ind').textContent,
-  startupVisible: !!document.getElementById('startup-overlay')
+  startupVisible: !!document.getElementById('startup-overlay'),
+  viewportWidth: document.documentElement.clientWidth,
+  bodyWidth: document.body.getBoundingClientRect().width,
+  topbarWidth: document.getElementById('topbar').getBoundingClientRect().width,
+  controlsWidth: document.getElementById('controls').getBoundingClientRect().width,
+  panesWidth: document.getElementById('panes').getBoundingClientRect().width
 })`));
 console.log('UI 对齐:', JSON.stringify(ui));
 if (ui.checks < 3 || ui.visiblePanes > 3 || ui.startupVisible) { console.log('❌ UI 初始化失败或加载层未退出'); process.exit(1); }
+const expectedVisiblePanes = ui.viewportWidth >= 1200 ? 3 : (ui.viewportWidth >= 800 ? 2 : 1);
+if (ui.visiblePanes !== expectedVisiblePanes) {
+  console.log(`❌ 响应式窗格数错误：期望 ${expectedVisiblePanes}，实际 ${ui.visiblePanes}`);
+  process.exit(1);
+}
+if ([ui.bodyWidth, ui.topbarWidth, ui.controlsWidth, ui.panesWidth].some(width => Math.abs(width - ui.viewportWidth) > 1)) {
+  console.log('❌ 工作台外壳未铺满真实页面视口');
+  process.exit(1);
+}
 
 // 1.1 翻页不得重建任何 iframe 浏览上下文。
 const preserved = JSON.parse(await cdp(page.webSocketDebuggerUrl, `(async()=>{
@@ -81,8 +89,11 @@ const badges = JSON.parse(await cdp(page.webSocketDebuggerUrl, `JSON.stringify([
 console.log('角标:', JSON.stringify(badges));
 if (badges.every(b => b === '加载中')) { console.log('❌ 探测无响应'); process.exit(1); }
 
+const launchHygiene = await assertCleanWorkbenchTargets({ port: PORT, extId: EXT_ID });
+console.log('启动页面卫生:', JSON.stringify(launchHygiene));
+
 if (!SEND) {
-  console.log('✅ Edge 无副作用回归通过（UI + iframe 保活 + runtime 探测）');
+  console.log('✅ Edge 无副作用回归通过（单工作台/零 blank + UI + iframe 保活 + runtime 探测）');
   process.exit(0);
 }
 
@@ -143,5 +154,6 @@ if (!bubble.bubble) { console.log('❌ 消息未进入对话区'); process.exit(
 const grew = bubble.bodyLen - (yfBaseline ?? 0);
 console.log('文本增长:', grew);
 if (yfBaseline != null && grew < 20) { console.log('❌ 未观察到回答增长'); process.exit(1); }
+await assertCleanWorkbenchTargets({ port: PORT, extId: EXT_ID });
 console.log('✅ Edge 端到端测试全部通过（UI 对齐 + 探测 + 发送 + 回答增长）');
 process.exit(0);

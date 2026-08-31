@@ -17,6 +17,9 @@ const release = read('scripts/make-release.sh');
 const updaterCaller = read('Sources/ParallelWorkbench/WorkbenchModel.swift');
 const installer = read('install.sh');
 const workbenchHTML = read('Windows/edge-extension/workbench.html');
+const edgeE2E = read('scripts/edge-e2e.mjs');
+const edgeAttachMatrix = read('scripts/edge-attach-matrix.mjs');
+const edgeTargetHelper = read('scripts/edge-workbench-target.mjs');
 
 const layoutBody = workbench.match(/function layoutPanes\(\)[\s\S]*?\n  }\n\n  function renderPanes/)?.[0] || '';
 requireText(layoutBody && !layoutBody.includes('appendChild'), 'layoutPanes 仍会重挂 iframe DOM');
@@ -25,10 +28,19 @@ requireText(!workbench.includes('paneTokens'), '仍保留页面可见 pane token
 requireText(!content.includes("window.addEventListener('message'"), '问答 content script 仍接收 window.postMessage');
 requireText(content.includes('chrome.runtime.onMessage.addListener'), 'content script 未注册 runtime 通道');
 requireText(background.includes('WB_AUTH_CALLBACK_CANDIDATE'), '后台缺少认证 callback 校验');
-requireText(!background.includes("url: 'about:blank'") && !background.includes('chrome.tabs.update'),
-  '工具栏启动仍通过 blank 窗口二次导航');
+requireText(!background.includes("url: 'about:blank'") && background.includes('isReusableEmptyTab') &&
+  background.includes('chrome.tabs.update(tab.id, { url: WORKBENCH_URL'),
+  '工具栏启动未把已有空白/新标签页原地替换为工作台');
+requireText(manifest.permissions?.includes('activeTab'), '工具栏入口缺少安全读取当前活动标签 URL 的 activeTab 权限');
 requireText(!launcher.includes('--no-startup-window') && !/timeout\s+\/t/i.test(launcher) && launcher.includes('--app='),
   'Windows 启动器仍包含 blank 预热或固定延迟');
+requireText(!edgeE2E.includes('about:blank') && edgeE2E.includes('ensureSingleWorkbenchPage') &&
+  !edgeE2E.includes('/json/new?'), 'Edge E2E 仍会从 about:blank 或直接反复新建工作台标签');
+requireText(edgeAttachMatrix.includes('ensureSingleWorkbenchPage') && !edgeAttachMatrix.includes('/json/new?'),
+  '附件矩阵仍会绕过单 target 启动策略');
+requireText((edgeTargetHelper.match(/\/json\/new\?/g) || []).length === 1 &&
+  edgeTargetHelper.includes("'Page.navigate'") && edgeTargetHelper.includes('assertCleanWorkbenchTargets'),
+  'Edge target helper 未保证只创建一次、原 target 重试和最终零 blank 审计');
 requireText(workbenchHTML.includes('startup-overlay') && workbench.includes("startupOverlay?.classList.add('done')"),
   '工作台缺少可见加载状态或初始化完成收口');
 requireText(intercept.includes('DEEPSEEK_WECHAT_CALLBACK'), '微信 MAIN world 缺少 callback 捕获');
@@ -43,6 +55,8 @@ for (const [name, source] of [['qa.sh', qa], ['package-delivery.sh', delivery], 
   requireText(!source.includes('build-Windows/edge-extension.sh'), `${name} 仍引用错误脚本路径`);
 }
 requireText(qa.includes('build-edge-extension.sh > /dev/null || FAIL=1'), 'QA 未记录扩展构建失败');
+requireText(qa.includes('background-launch-test.mjs || FAIL=1'), 'QA 未执行工具栏空白页复用回归');
+requireText(qa.includes('palette-regression-test.mjs || FAIL=1'), 'QA 未执行双端三色与 logo 回归');
 requireText(updaterCaller.includes('expectedSHA256: rel.dmgSHA256'), 'macOS 更新调用未传递 SHA-256');
 requireText(installer.includes('SHA-256 校验通过') && installer.includes('shasum -a 256'),
   'install.sh 未强制校验 SHA-256');

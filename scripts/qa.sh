@@ -31,6 +31,8 @@ for f in Windows/edge-extension/manifest.json Windows/edge-extension/lib/adapter
   python3 -m json.tool "$f" > /dev/null || FAIL=1
 done
 node scripts/security-regression-test.mjs || FAIL=1
+node scripts/background-launch-test.mjs || FAIL=1
+node scripts/palette-regression-test.mjs || FAIL=1
 echo "    语法与 JSON 校验通过"
 
 echo "==> 4/4 扩展胶水层 jsdom 冒烟测试"
