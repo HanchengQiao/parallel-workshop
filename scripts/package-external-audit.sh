@@ -65,7 +65,8 @@ fi
 } > "$STAGE/audit/VERIFY-macOS-app-and-signing.log"
 cleanup_mount
 trap - EXIT
-ditto -c -k --sequesterRsrc --keepParent build/ParallelWorkbench.app "$STAGE/artifacts/ParallelWorkbench.app.zip"
+APP_ZIP="$(pwd)/$STAGE/artifacts/ParallelWorkbench.app.zip"
+(cd build && zip -qry -y "$APP_ZIP" ParallelWorkbench.app -x '*/.DS_Store' -x '__MACOSX/*')
 cp "build/ParallelWorkbench-${VERSION}.dmg" "$STAGE/artifacts/"
 cp build/edge-extension.zip build/edge-extension-store.zip "$STAGE/artifacts/"
 
