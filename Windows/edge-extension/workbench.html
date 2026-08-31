@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>平行工作台</title>
 <link rel="stylesheet" href="workbench.css">
 </head>
@@ -17,14 +18,20 @@
   </div>
 </div>
 <div id="topbar">
-  <span id="title">平行工作台</span>
+  <span id="title">
+    <span class="brand-symbol" aria-hidden="true">PW</span>
+    <span class="brand-copy">
+      <strong>平行工作台</strong>
+      <small>Parallel Workbench</small>
+    </span>
+  </span>
   <textarea id="question" placeholder="输入问题（Enter 换行，Ctrl↩ 或点「发送」同步到所有勾选的模型）"></textarea>
   <button id="mic" title="语音输入（再次点击结束）">🎤</button>
   <button id="send" disabled>发送</button>
 </div>
 <div id="attachbar">
   <input type="file" id="file-input" multiple style="display:none">
-  <button id="attach-btn" title="添加文件/图片">📎 附件</button>
+  <button id="attach-btn" title="添加文件/图片">📎&nbsp; 附件</button>
   <div id="attach-chips"></div>
   <span id="attach-hint">可拖入文件/图片，或 Ctrl+V 粘贴图片</span>
 </div>
