@@ -232,7 +232,6 @@ void (async () => {
       }
       if (btn) break;
     }
-    if (!btn && matches.length > 0) { try { btn = document.querySelector(chain[0]); } catch {} }
     if (btn) {
       const state = { disabled: !!btn.disabled, ariaDisabled: btn.getAttribute('aria-disabled') || null };
       btn.click();
@@ -241,13 +240,17 @@ void (async () => {
         editorHTML: target.innerHTML ? target.innerHTML.slice(0, 200) : ''
       };
     }
-    return { ok: false, error: 'NO_BUTTON', attInfo, matchedCount: matches.length, matches: matches };
+    return { ok: false, error: 'NO_ENABLED_BUTTON', attInfo, matchedCount: matches.length, matches: matches };
   }
 
   if (cfg.send && cfg.send.type === 'combo') {
     // 按钮点击 + 合成回车双保险（调试定位用）
     const chain = cfg.send.selectors || (cfg.send.selector ? [cfg.send.selector] : []);
-    const btn = first(chain);
+    const btn = chain.flatMap((s) => { try { return Array.from(document.querySelectorAll(s)); } catch { return []; } })
+      .find((b) => {
+        const r = b.getBoundingClientRect ? b.getBoundingClientRect() : null;
+        return !b.disabled && b.getAttribute('aria-disabled') !== 'true' && !!(r && r.width > 0 && r.height > 0);
+      }) || null;
     const btnState = btn ? { disabled: !!btn.disabled, ariaDisabled: btn.getAttribute('aria-disabled') || null } : null;
     if (btn) { btn.click(); }
     await sleep(200);
@@ -266,7 +269,11 @@ void (async () => {
   if (cfg.send && cfg.send.type === 'pointer') {
     // 完整指针事件序列（有些框架监听 pointerup/mouseup 而非 click）
     const chain = cfg.send.selectors || (cfg.send.selector ? [cfg.send.selector] : []);
-    const btn = first(chain);
+    const btn = chain.flatMap((s) => { try { return Array.from(document.querySelectorAll(s)); } catch { return []; } })
+      .find((b) => {
+        const r = b.getBoundingClientRect ? b.getBoundingClientRect() : null;
+        return !b.disabled && b.getAttribute('aria-disabled') !== 'true' && !!(r && r.width > 0 && r.height > 0);
+      }) || null;
     if (btn) {
       const r = btn.getBoundingClientRect();
       const x = r ? r.x + r.width / 2 : 0;
@@ -283,13 +290,14 @@ void (async () => {
         buttonState: { disabled: !!btn.disabled, ariaDisabled: btn.getAttribute('aria-disabled') || null }
       };
     }
-    return { ok: false, error: 'NO_BUTTON', attInfo };
+    return { ok: false, error: 'NO_ENABLED_BUTTON', attInfo };
   }
 
   if (cfg.send && cfg.send.type === 'paragraph') {
     let ok = false;
     try { ok = document.execCommand('insertParagraph'); } catch {}
-    return { ok: true, attInfo, sent: ok ? 'paragraph' : 'paragraph-failed' };
+    return ok ? { ok: true, attInfo, sent: 'paragraph' }
+      : { ok: false, error: 'PARAGRAPH_NOT_ACCEPTED', attInfo };
   }
 
   const key = (type) => target.dispatchEvent(new KeyboardEvent(type, {

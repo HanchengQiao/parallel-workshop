@@ -24,7 +24,12 @@ let package = Package(
         .executableTarget(
             name: "WorkbenchTester",
             dependencies: ["WorkbenchCore"],
-            path: "Sources/WorkbenchTester"
+            path: "Sources/WorkbenchTester",
+            exclude: ["fixture.html"]
+        ),
+        .testTarget(
+            name: "WorkbenchCoreTests",
+            dependencies: ["WorkbenchCore"]
         )
     ]
 )

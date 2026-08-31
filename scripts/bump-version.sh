@@ -1,9 +1,9 @@
 #!/bin/bash
-# 统一版本号：Edge manifest / npm-launcher / Info.plist 模板 / Homebrew cask
-# 用法：bash scripts/bump-version.sh 0.2.0
+# 统一版本号：Edge manifest / npm-launcher / Homebrew cask；macOS Info.plist 构建时读取 manifest 版本
+# 用法：bash scripts/bump-version.sh X.Y.Z
 set -euo pipefail
 cd "$(dirname "$0")/.."
-V="${1:?用法: bash scripts/bump-version.sh 0.2.0}"
+V="${1:?用法: bash scripts/bump-version.sh X.Y.Z}"
 
 python3 - "$V" <<'EOF'
 import json, sys, re
@@ -16,11 +16,6 @@ json.dump(d, open(p, "w"), ensure_ascii=False, indent=2)
 p = "npm-launcher/package.json"
 d = json.load(open(p)); d["version"] = v
 json.dump(d, open(p, "w"), ensure_ascii=False, indent=2)
-
-p = "scripts/package-app.sh"
-s = open(p).read()
-s = re.sub(r'<string>\d+\.\d+\.\d+</string>', f'<string>{v}</string>', s, count=1)
-open(p, "w").write(s)
 
 p = "homebrew/Casks/parallel-workbench.rb"
 s = open(p).read()

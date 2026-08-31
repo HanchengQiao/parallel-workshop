@@ -2,10 +2,13 @@
 
 > 本目录是 **Windows 产品入口**。macOS 用户请使用仓库根目录下 `macOS/` 目录（或直接执行 `install.sh`）。
 
+> v0.2.1 正在回归、尚未发布稳定资产；v0.2.0 存在 DeepSeek 微信扫码回调缺陷，不建议继续分发。
+
 ## 从 GitHub 直接下载安装（命令行，Windows 10/11 自带 curl.exe 与 tar）
 
 ```bat
-curl.exe -LO https://github.com/HanchengQiao/parallel-workshop/releases/download/v0.2.0/edge-extension.zip
+set VERSION=X.Y.Z
+curl.exe -LO https://github.com/HanchengQiao/parallel-workshop/releases/download/v%VERSION%/edge-extension.zip
 tar -xf edge-extension.zip
 cd edge-extension
 install.bat
@@ -19,7 +22,7 @@ install.bat
 
 | 平台 | 形态 | 登录态 |
 |---|---|---|
-| macOS | 原生应用（SwiftUI + WKWebView） | 继承 Safari |
+| macOS | 原生应用（SwiftUI + WKWebView） | 应用内独立 WebKit 持久存储 |
 | **Windows** | **Edge 扩展（MV3，本目录）** | **继承 Edge 浏览器** |
 
 两者共用同一套适配器/注入核心（`Sources/WorkbenchCore/Resources/` → `scripts/build-edge-extension.sh` 同步）。
@@ -73,9 +76,11 @@ install.bat
 - **MV3 缓存（worker 与 manifest）**：改动 background.js / manifest.json 后即使重启 Edge 也可能仍跑旧代码——真正的缓存源是扩展目录里的 `_metadata/`（含 DNR 规则集缓存）。可靠刷新：manifest 版本号 +1，删除 `edge-extension/_metadata` 与 profile 下的 `Service Worker`、`Extension State`、`Extension Scripts`，重启 Edge
 - **重定向域名**：帧 URL 与适配器 origin 可能不同（tongyi.com → qianwen.com、yiyan → wenxin），帧匹配必须用 homeHosts 兜底
 
-## 登录围栏（防逃逸）
+## 登录围栏与 DeepSeek 微信回调
 
-- 平台登录流程必须留在工作台内：`intercept.js` 以 manifest `content_scripts`（`run_at: document_start` + `world: MAIN` + 全帧）注入，把 `window.open` 与 `target=_blank` 圈禁为帧内导航
+- 平台 iframe 保持 sandbox，禁止认证子帧导航整个工作台。
+- DeepSeek 微信授权完成后，`intercept.js` 捕获微信 QR 页产生的 callback 候选；`auth-bridge.js` 与后台分别验证微信来源、DeepSeek HTTPS origin、固定 callback path 和 code 长度，最终只导航 DeepSeek pane。
+- 问答注入/探测不再使用页面可见的 `postMessage` token，而是通过 `chrome.tabs.sendMessage` 直接投递到扩展隔离世界。
 - DNR 规则与 host_permissions 需覆盖认证域名（appleid.apple.com / auth.openai.com / open.weixin.qq.com / passport.baidu.com 等），否则认证页在帧内被 X-Frame-Options 拦截
 - 已实测：DeepSeek「使用 Apple 账号登录」→ 无新开标签页，Apple 认证页在帧内完整渲染 ✅
 

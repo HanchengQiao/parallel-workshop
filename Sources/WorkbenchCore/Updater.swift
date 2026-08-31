@@ -13,6 +13,7 @@ public enum Updater {
         public let version: String
         public let dmgURL: String?
         public let notes: String?
+        public let dmgSHA256: String?
     }
 
     /// 仓库配置：环境变量 PWB_REPO 优先
@@ -35,9 +36,14 @@ public enum Updater {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tag = json["tag_name"] as? String else { return nil }
         let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+        let notes = json["body"] as? String
         let assets = json["assets"] as? [[String: Any]] ?? []
-        let dmg = assets.first(where: { ($0["name"] as? String ?? "").hasSuffix(".dmg") })?["browser_download_url"] as? String
-        return Release(version: version, dmgURL: dmg, notes: json["body"] as? String)
+        let expectedName = "ParallelWorkbench-\(version).dmg"
+        let dmgAsset = assets.first(where: { ($0["name"] as? String) == expectedName })
+        let dmg = dmgAsset?["browser_download_url"] as? String
+        let apiDigest = (dmgAsset?["digest"] as? String)?.replacingOccurrences(of: "sha256:", with: "")
+        let digest = normalizedSHA256(apiDigest) ?? normalizedSHA256(expectedSHA256(assetName: expectedName, notes: notes))
+        return Release(version: version, dmgURL: dmg, notes: notes, dmgSHA256: digest)
     }
 
     /// 简单语义版本比较：latest 是否高于 current
@@ -65,6 +71,13 @@ public enum Updater {
         return nil
     }
 
+    static func normalizedSHA256(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let digest = value.lowercased()
+        guard digest.count == 64, digest.allSatisfy({ $0.isHexDigit }) else { return nil }
+        return digest
+    }
+
     static func sha256Hex(of data: Data) -> String {
         let digest = SHA256.hash(data: data)
         return digest.map { String(format: "%02x", $0) }.joined()
@@ -72,30 +85,33 @@ public enum Updater {
 
     /// 下载 DMG → 校验 → 挂载 → 原子替换 /Applications → 去隔离 → 卸载镜像。
     /// 全程校验退出码；失败即回滚并返回 false。
-    public static func install(dmgURL: String, notes: String? = nil, progress: @escaping (String) -> Void) async -> Bool {
+    public static func install(dmgURL: String, expectedSHA256: String?, notes: String? = nil,
+                               progress: @escaping (String) -> Void) async -> Bool {
         progress("正在下载新版本…")
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("pwb-update-\(UUID().uuidString).dmg")
         defer { try? FileManager.default.removeItem(at: tmp) }
         guard let url = URL(string: dmgURL) else { return false }
         let assetName = url.lastPathComponent
+        guard let expected = normalizedSHA256(expectedSHA256) ??
+                normalizedSHA256(Self.expectedSHA256(assetName: assetName, notes: notes)) else {
+            progress("校验失败：Release 未提供有效 SHA-256，已中止")
+            return false
+        }
         do {
             let (data, resp) = try await URLSession.shared.data(from: url)
             guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return false }
-            // 可选强校验：Notes 内声明了该资产 SHA256 时，不一致即中止
-            if let expect = expectedSHA256(assetName: assetName, notes: notes) {
-                let actual = sha256Hex(of: data)
-                guard actual.lowercased() == expect.lowercased() else {
-                    progress("校验失败：下载文件哈希不匹配，已中止")
-                    return false
-                }
+            let actual = sha256Hex(of: data)
+            guard actual.lowercased() == expected else {
+                progress("校验失败：下载文件哈希不匹配，已中止")
+                return false
             }
             try data.write(to: tmp)
         } catch { return false }
 
         progress("正在安装…")
         // 1) 挂载
-        guard let mountOutput = run("/usr/bin/hdiutil", ["attach", tmp.path, "-nobrowse"]),
+        guard let mountOutput = run("/usr/bin/hdiutil", ["attach", tmp.path, "-readonly", "-nobrowse"]),
               let mount = mountOutput.split(separator: "\n")
                 .compactMap({ line -> String? in
                     let s = String(line)
@@ -119,8 +135,9 @@ public enum Updater {
 
         // 4) 原子替换：先复制到同卷临时名（保留复制失败时旧版完好）
         let dest = "/Applications/ParallelWorkbench.app"
-        let staged = "/Applications/.ParallelWorkbench.app.new"
-        let backup = "/Applications/.ParallelWorkbench.app.old"
+        let transaction = UUID().uuidString
+        let staged = "/Applications/.ParallelWorkbench.app.new-\(transaction)"
+        let backup = "/Applications/.ParallelWorkbench.app.old-\(transaction)"
         let hadOld = FileManager.default.fileExists(atPath: dest)
 
         _ = run("/bin/rm", ["-rf", staged])
@@ -130,25 +147,32 @@ public enum Updater {
             _ = run("/bin/rm", ["-rf", staged])
             return false
         }
-        // 旧版移走 → 新版换名 → 清理旧版；mv 同卷原子
+        // 同卷 replaceItemAt：替换失败时系统保留原目标，并生成可回滚备份。
         if hadOld {
             _ = run("/bin/rm", ["-rf", backup])
-            guard run("/bin/mv", [dest, backup]) != nil else {
+            do {
+                _ = try FileManager.default.replaceItemAt(
+                    URL(fileURLWithPath: dest),
+                    withItemAt: URL(fileURLWithPath: staged),
+                    backupItemName: URL(fileURLWithPath: backup).lastPathComponent,
+                    options: []
+                )
+            } catch {
                 _ = run("/bin/rm", ["-rf", staged])
+                progress("安装失败：原版本保持不变")
                 return false
             }
-        }
-        guard run("/bin/mv", [staged, dest]) != nil else {
-            // 回滚旧版
-            if hadOld { _ = run("/bin/mv", [backup, dest]) }
-            _ = run("/bin/rm", ["-rf", staged])
-            progress("安装失败：已回滚旧版本")
-            return false
+        } else {
+            guard run("/bin/mv", [staged, dest]) != nil else {
+                _ = run("/bin/rm", ["-rf", staged])
+                progress("安装失败：新版本未安装")
+                return false
+            }
         }
         if hadOld { _ = run("/bin/rm", ["-rf", backup]) }
 
         // 5) 去隔离（未签名应用启动必要步骤）
-        _ = run("/usr/bin/xattr", ["-d", "com.apple.quarantine", dest])
+        _ = run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", dest])
         progress("更新完成")
         return true
     }
@@ -163,11 +187,12 @@ public enum Updater {
         p.standardError = pipe
         do {
             try p.run()
-            p.waitUntilExit()
         } catch {
             return nil
         }
+        let output = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
         guard p.terminationStatus == 0 else { return nil }
-        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+        return String(data: output, encoding: .utf8)
     }
 }

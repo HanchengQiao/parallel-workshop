@@ -13,7 +13,8 @@ mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 
-DMG="build/ParallelWorkbench-${VERSION:-0.1.0}.dmg"
+: "${VERSION:?请通过 VERSION=X.Y.Z 指定 DMG 版本}"
+DMG="build/ParallelWorkbench-${VERSION}.dmg"
 rm -f "$DMG"
 hdiutil create -volname "平行工作台" -srcfolder "$STAGE" -ov -format UDZO "$DMG" > /dev/null
 rm -rf "$STAGE"

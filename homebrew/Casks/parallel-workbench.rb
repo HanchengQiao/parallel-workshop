@@ -1,5 +1,5 @@
 cask "parallel-workbench" do
-  version "0.2.0"
+  version "0.2.1"
   sha256 :no_check
 
   # GitHub 仓库：HanchengQiao/parallel-workshop

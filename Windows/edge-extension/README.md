@@ -18,10 +18,11 @@ bash scripts/build-edge-extension.sh   # 复制共享核心 → edge-extension/l
 ## 架构
 
 - `workbench.html/js/css`：工作台页面（iframe pane + 统一输入框 + 状态角标 + 发送反馈）
-- `content.js`：注入所有 frame；`postMessage` 协议（`WB_INJECT`/`WB_PROBE` → `WB_RESULT`）
-- `rules.json`：declarativeNetRequest 剥离 XFO/CSP 响应头，允许 iframe 嵌入平台官网
+- `content.js`：隔离世界注入核心；工作台用 `chrome.tabs.sendMessage` 指定 frame 并直接取得回执，页面脚本无法伪造
+- `auth-bridge.js`：把 MAIN world 捕获的 DeepSeek 微信 callback 候选转交后台做第二次白名单验证
+- `background.js`：仅为已注册的工作台 tab 动态创建 session DNR rule，剥离该 tab 内目标 iframe 的 XFO/CSP；普通标签页和商店分配的新扩展 ID 均不受影响
 - `lib/`：构建脚本从共享核心复制的 adapter JSON + inject/probe JS
-- 固定扩展 ID（manifest key）：`eeppnjgcjioaohaaoaknkkafhodccmmf`
+- 侧载包用 manifest key 保持快捷方式 ID 稳定；商店可分配新 ID，session DNR 不依赖固定 ID
 
 ## 验证状态
 

@@ -91,7 +91,8 @@ struct ContentView: View {
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.return, modifiers: [.command])
                 .help("发送到所有勾选的模型（⌘↩）")
-                .disabled(model.question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.attachments.isEmpty)
+                .disabled(model.sending ||
+                          (model.question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.attachments.isEmpty))
             }
             // 语音状态提示
             if !voice.statusText.isEmpty {

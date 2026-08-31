@@ -2,6 +2,7 @@ import AppKit
 import WorkbenchCore
 import Foundation
 import Darwin
+import WebKit
 
 /// 无人值守验收测试器：
 /// 对每个平台 —— 离屏 WKWebView 加载官网 → 等待输入框就绪 → 自动注入问题并发送 →
@@ -47,7 +48,7 @@ struct WorkbenchTester {
         }
         if let i = args.firstIndex(of: "--cookies") {
             args.remove(at: i)
-            dumpCookies()
+            await dumpCookies()
             exit(0)
         }
         if let i = args.firstIndex(of: "--backup-auth") {
@@ -394,8 +395,10 @@ struct WorkbenchTester {
     }
 
     /// 打印共享 cookie 罐中与各平台相关的 cookie（只看域名与条数，不泄露值）
-    static func dumpCookies() {
-        let cookies = HTTPCookieStorage.shared.cookies ?? []
+    static func dumpCookies() async {
+        let cookies: [HTTPCookie] = await withCheckedContinuation { continuation in
+            WKWebsiteDataStore.default().httpCookieStore.getAllCookies { continuation.resume(returning: $0) }
+        }
         let keywords = ["deepseek", "kimi", "moonshot", "tongyi", "aliyun", "yiyan", "baidu", "chatgpt", "openai", "claude", "gemini", "google"]
         let grouped = Dictionary(grouping: cookies, by: { $0.domain })
         let relevant = grouped.filter { domain, _ in keywords.contains { domain.contains($0) } }
@@ -442,7 +445,7 @@ struct WorkbenchTester {
                 try fm.copyItem(at: cookies, to: ckDest)
             }
             print("✅ 登录态已备份到 \(backupDir.path)")
-            print("   （建议：各平台登录完成后执行一次；Safari 清除历史导致登录失效时用 --restore-auth 恢复）")
+            print("   （建议：各平台登录完成后执行一次；应用存储损坏或迁移时用 --restore-auth 恢复）")
             return true
         } catch {
             print("❌ 备份失败: \(error)")

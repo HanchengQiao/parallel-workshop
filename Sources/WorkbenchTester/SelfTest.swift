@@ -4,7 +4,7 @@ import WorkbenchCore
 import Foundation
 
 /// 注入核心自检：用本地夹具页验证 inject.js/probe.js 的各条注入路径，不触网、不打扰真实平台。
-enum SelfTest {
+@MainActor enum SelfTest {
     static var window: NSWindow?
 
     struct Case {
@@ -22,7 +22,7 @@ enum SelfTest {
             return 2
         }
 
-        let webView: WKWebView = await MainActor.run {
+        let webView: WKWebView = {
             let w = WKWebView(frame: NSRect(x: 0, y: 0, width: 1000, height: 800))
             let win = NSWindow(contentRect: NSRect(x: -4000, y: 0, width: 1000, height: 800),
                                styleMask: [.titled], backing: .buffered, defer: false)
@@ -31,7 +31,7 @@ enum SelfTest {
             window = win
             w.loadFileURL(fixtureURL, allowingReadAccessTo: fixtureURL.deletingLastPathComponent())
             return w
-        }
+        }()
 
         // 等待夹具页真正解析完成（初始空白页 readyState 也是 complete，须轮询夹具元素出现）
         let deadline = Date().addingTimeInterval(15)
@@ -174,21 +174,13 @@ enum SelfTest {
 
     private static func eval(_ w: WKWebView, _ js: String) async throws -> Any? {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Any?, Error>) in
-            let run = {
-                w.evaluateJavaScript(js) { result, error in
-                    if let error { cont.resume(throwing: error) } else { cont.resume(returning: result) }
-                }
+            w.evaluateJavaScript(js) { result, error in
+                if let error { cont.resume(throwing: error) } else { cont.resume(returning: result) }
             }
-            if Thread.isMainThread { run() } else { DispatchQueue.main.async(execute: run) }
         }
     }
 
     private static func pump(_ seconds: TimeInterval) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            await MainActor.run {
-                RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1))
-            }
-        }
+        try? await Task.sleep(nanoseconds: UInt64(max(seconds, 0) * 1_000_000_000))
     }
 }

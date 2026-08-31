@@ -5,6 +5,8 @@
 > - 🪟 **Windows 用户** → 看 [`Windows/`](Windows/README.md) 目录（下载 `edge-extension.zip` 侧载到 Edge）
 > - 两个目录各自独立完整，**fork/下载时请按你的平台选择对应目录**
 
+> **发布状态：** v0.2.0 已标记为预发布，存在 Edge/DeepSeek 微信扫码回调缺陷。`main` 已包含修复，新的稳定资产将在双端回归完成后以 v0.2.1 发布；在此之前请勿向普通用户推荐 v0.2.0。
+
 ---
 
 多模型平行问答工作台：一个窗口平行排布多个 AI 平台的官方网页客户端，顶部统一输入框一键同步发送（⌘↩），回答在各平台原生界面中平行展示。
@@ -18,23 +20,16 @@
 - **不提供代理服务**：国际平台走用户系统里已有的代理环境
 - **风险管控**：不自动化任何登录/验证流程（人工在 pane 内完成）；注入只做「定位输入框→设值→发送」，不轮询、不自动重试
 
-## 安装（用户视角，三条 CLI 路径）
+## 安装（下一个稳定版发布后）
 
 开源仓库发布后（见 `RELEASE.md`），用户可选任一种方式安装：
 
 ```sh
-# 方式 1：Homebrew（推荐，标准 macOS 生态）
-brew tap HanchengQiao/parallel-workbench
-brew install --cask parallel-workbench
-
-# 方式 2：curl 一键安装（零依赖）
+# macOS：从最新稳定 Release 下载、强制校验 SHA-256 后原子安装；当前修复阶段会拒绝安装预发布版
 curl -fsSL https://raw.githubusercontent.com/HanchengQiao/parallel-workshop/main/install.sh | bash
-
-# 方式 3：npx 启动器（最像 dsh：先启动，缺则自动下载安装）
-npx parallel-workbench
 ```
 
-> 未签名开源分发：install.sh 与 Homebrew 在安装时移除下载隔离属性（用户主动执行即视为知情同意）；正式对外分发建议按 `RELEASE.md` 签名公证。Windows 用户：GitHub Releases 下载 `edge-extension.zip` 侧载（或等 Edge 商店上架）。
+> 未签名开源分发：install.sh 校验 GitHub 资产摘要后安装并移除隔离属性；正式对外分发仍建议签名公证。npm 包和 Homebrew tap 尚未发布，因此不再宣传对应命令。
 
 ## 运行（开发者）
 
@@ -107,7 +102,7 @@ Sources/
 
 ## Windows/Edge 扩展
 
-Edge/Chrome MV3 扩展位于 `edge-extension/`，复用同一套 adapter/注入核心（`scripts/build-edge-extension.sh` 同步）。Edge 开发者模式「加载解压缩的扩展」即可安装，登录态继承自浏览器。详见 `edge-extension/README.md`。
+Edge/Chrome MV3 扩展位于 `Windows/edge-extension/`，复用同一套 adapter/注入核心（`scripts/build-edge-extension.sh` 同步）。Edge 开发者模式「加载解压缩的扩展」即可安装。详见 `Windows/edge-extension/README.md`。
 
 ## 打包
 
@@ -123,7 +118,7 @@ bash scripts/package-app.sh   # 生成 build/ParallelWorkbench.app（未签名�
   - **Kimi ✅**：文件进入解析管线（macOS 实测上传卡「wb-tiny Parsing failed」）；**ChatGPT ✅**：文件进入上传管线（Edge 实测附件 chip 出现）
   - **DeepSeek ⚠️**：赋值成功但平台未展示上传卡（疑似要求真实用户手势）；**通义/文心 ❌**：无 file input 且拒绝合成拖放 → 提示「请手动添加」
   - 通道机制：有文件输入框的平台走 `input.files` 原生上传管线；其余走 CDP 拖放（尽力而为——扩展无文件系统权限，CDP 只能投递 MIME 数据，无法构造真实 File）
-- **语音输入**：macOS 系统语音识别（SFSpeechRecognizer，免费本地识别）；Edge 用浏览器内置 Web Speech API。点击 🎤 开始，实时转写进输入框，再点一次结束
+- **语音输入**：macOS 使用系统 `SFSpeechRecognizer`，Edge 使用 Web Speech API；是否完全在设备端处理取决于系统、语言与浏览器能力。点击 🎤 开始，实时转写进输入框，再点一次结束
 - 首次使用语音：macOS 需授权麦克风与语音识别（系统设置 → 隐私与安全性）
 
 ## 版本更新

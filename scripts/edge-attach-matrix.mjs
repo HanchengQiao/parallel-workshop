@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const EXT_ID = process.argv[2] || 'eeppnjgcjioaohaaoaknkkafhodccmmf';
 const FULL = process.argv.includes('--full');
-const PORT = 9223;
+const PORT = Number(process.env.PWB_EDGE_PORT || 9223);
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';

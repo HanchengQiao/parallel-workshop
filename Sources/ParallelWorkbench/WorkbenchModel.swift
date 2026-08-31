@@ -14,6 +14,7 @@ final class WorkbenchModel: ObservableObject {
     @Published var question: String = ""
     @Published var statusText: String = ""
     @Published var loginProgress: String = ""
+    @Published var sending = false
     @Published var focusedID: String? = nil
     @Published var windowStart: Int = 0
     private var cancellables: Set<AnyCancellable> = []
@@ -34,10 +35,10 @@ final class WorkbenchModel: ObservableObject {
         updateLoginProgress()
     }
 
-    /// 登录进度：就绪窗格数 / 总数；全部就绪时隐藏
+    /// 就绪进度：输入框可用窗格数 / 总数；游客模式就绪不等同于已登录。
     func updateLoginProgress() {
         let ready = panes.filter { $0.status == .ready }.count
-        loginProgress = (panes.isEmpty || ready == panes.count) ? "" : "已登录 \(ready)/\(panes.count)"
+        loginProgress = (panes.isEmpty || ready == panes.count) ? "" : "就绪 \(ready)/\(panes.count)"
     }
 
     var enabledPanes: [PaneController] {
@@ -96,7 +97,21 @@ final class WorkbenchModel: ObservableObject {
 
     func addAttachment(urls: [URL]) {
         for url in urls {
-            guard let data = try? Data(contentsOf: url), data.count <= 25 * 1024 * 1024 else { continue }
+            guard url.isFileURL else {
+                statusText = "只支持本地文件，已忽略网络 URL"
+                continue
+            }
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                  size <= 25 * 1024 * 1024 else {
+                statusText = "附件超过 25MB 或无法读取：\(url.lastPathComponent)"
+                continue
+            }
+            guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]), data.count == size else {
+                statusText = "附件读取失败：\(url.lastPathComponent)"
+                continue
+            }
             let mime = mimeType(for: url.pathExtension)
             attachments.append(AttachmentItem(
                 name: url.lastPathComponent,
@@ -177,7 +192,7 @@ final class WorkbenchModel: ObservableObject {
                 }
                 return
             }
-            let ok = await Updater.install(dmgURL: dmg) { msg in
+            let ok = await Updater.install(dmgURL: dmg, expectedSHA256: rel.dmgSHA256, notes: rel.notes) { msg in
                 Task { @MainActor in self.updateStatus = msg }
             }
             await MainActor.run {
@@ -194,6 +209,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func send() {
+        guard !sending else { return }
         let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty else { return }   // 附件-only 允许发送
         let targets = enabledPanes
@@ -201,27 +217,37 @@ final class WorkbenchModel: ObservableObject {
             statusText = "没有勾选的模型窗口"
             return
         }
-        statusText = "已向 \(targets.count) 个窗口提交"
+        sending = true
+        statusText = "正在向 \(targets.count) 个窗口并发提交…"
         let atts = attachmentConfigs
         let sentQuestion = question
         let sentAtts = attachments
-        // 状态机：全部失败则回填；第一个成功才清空（防数据丢失）
+        // 所有任务立即启动；结果全部收齐后统一清空/回填，保持真正的平行发送。
         Task { @MainActor in
-            var okCount = 0
-            var failCount = 0
-            for pane in targets {
-                _ = await pane.send(text: text, attachments: atts)
-                if pane.lastResultOK == true { okCount += 1 } else { failCount += 1 }
+            let tasks = targets.map { pane in
+                Task { @MainActor in
+                    _ = await pane.send(text: text, attachments: atts)
+                    return pane.lastResultOK == true
+                }
             }
+            var okCount = 0
+            for task in tasks {
+                if await task.value { okCount += 1 }
+            }
+            let failCount = targets.count - okCount
             if okCount > 0 {
-                question = ""
-                attachments = []
-                statusText = "已提交 \(okCount)/\(targets.count) 个窗口"
+                if question == sentQuestion { question = "" }
+                let sentIDs = Set(sentAtts.map(\.id))
+                attachments.removeAll { sentIDs.contains($0.id) }
+                statusText = "已提交 \(okCount)/\(targets.count) 个窗口" +
+                    (failCount > 0 ? "，\(failCount) 个失败" : "")
             } else {
-                question = sentQuestion
-                attachments = sentAtts
+                if question.isEmpty { question = sentQuestion }
+                let currentIDs = Set(attachments.map(\.id))
+                attachments.append(contentsOf: sentAtts.filter { !currentIDs.contains($0.id) })
                 statusText = "全部窗口发送失败，问题与附件已回填"
             }
+            sending = false
         }
     }
 
@@ -233,6 +259,7 @@ final class WorkbenchModel: ObservableObject {
                     self.enabled.insert(id)
                 } else {
                     self.enabled.remove(id)
+                    if self.focusedID == id { self.focusedID = nil }
                     // 取消勾选后修正分页窗口，避免空窗
                     let list = self.enabledPanes
                     self.windowStart = min(self.windowStart, max(list.count - Self.maxVisiblePanes, 0))

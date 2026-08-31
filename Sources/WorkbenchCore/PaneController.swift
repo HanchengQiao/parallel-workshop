@@ -13,7 +13,7 @@ public enum PaneStatus: Equatable {
 }
 
 /// 一个模型窗格：WKWebView 加载平台官网 + 注入引擎 + 状态探测。
-/// 使用 WKWebsiteDataStore.default()，与 Safari 共享 cookie —— 登录态直接继承。
+/// 使用本应用自己的 WKWebsiteDataStore.default()，登录态在应用内持久化，不继承 Safari。
 @MainActor public final class PaneController: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate {
     public let adapter: Adapter
     public let webView: WKWebView
@@ -26,7 +26,7 @@ public enum PaneStatus: Equatable {
     public init(adapter: Adapter) {
         self.adapter = adapter
         let config = WKWebViewConfiguration()
-        config.websiteDataStore = .default()   // 与 Safari 共享 cookie（登录态继承）
+        config.websiteDataStore = .default()   // 本应用独立的持久 WebKit 数据存储
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         config.preferences.javaScriptCanOpenWindowsAutomatically = true
         self.webView = WKWebView(frame: .zero, configuration: config)
@@ -55,6 +55,7 @@ public enum PaneStatus: Equatable {
 
     @discardableResult
     public func send(text: String, attachments: [[String: Any]] = [], noSend: Bool = false) async -> String {
+        lastResultOK = false
         guard isLoaded else {
             lastLog = "页面未加载完成，跳过"
             lastResultOK = false
@@ -133,6 +134,7 @@ public enum PaneStatus: Equatable {
                 }
             }
         } catch {
+            lastResultOK = false
             lastLog = "注入异常: \(error.localizedDescription)"
             print("[\(adapter.id)] ❌ 注入异常: \(error)")
         }
@@ -151,7 +153,7 @@ public enum PaneStatus: Equatable {
         guard isLoaded else { return }
         let js = InjectionScripts.build(InjectionScripts.probeJS, cfg: adapter.probeConfig())
         guard let result = try? await eval(js), let dict = result as? [String: Any] else {
-            status = .ready
+            status = .unreachable("状态探测失败")
             return
         }
         let hasInput = dict["input"] as? Bool ?? false
@@ -641,26 +643,23 @@ public enum PaneStatus: Equatable {
 
     public func screenshot(to path: String) async -> Bool {
         await withCheckedContinuation { cont in
-            let run = {
-                self.webView.takeSnapshot(with: nil) { image, error in
-                    guard let image = image,
-                          let tiff = image.tiffRepresentation,
-                          let rep = NSBitmapImageRep(data: tiff),
-                          let png = rep.representation(using: .png, properties: [:]) else {
-                        print("    截图失败: \(error?.localizedDescription ?? "图像为空")")
-                        cont.resume(returning: false)
-                        return
-                    }
-                    do {
-                        try png.write(to: URL(fileURLWithPath: path))
-                        cont.resume(returning: true)
-                    } catch {
-                        print("    截图写入失败: \(error)")
-                        cont.resume(returning: false)
-                    }
+            webView.takeSnapshot(with: nil) { image, error in
+                guard let image = image,
+                      let tiff = image.tiffRepresentation,
+                      let rep = NSBitmapImageRep(data: tiff),
+                      let png = rep.representation(using: .png, properties: [:]) else {
+                    print("    截图失败: \(error?.localizedDescription ?? "图像为空")")
+                    cont.resume(returning: false)
+                    return
+                }
+                do {
+                    try png.write(to: URL(fileURLWithPath: path))
+                    cont.resume(returning: true)
+                } catch {
+                    print("    截图写入失败: \(error)")
+                    cont.resume(returning: false)
                 }
             }
-            if Thread.isMainThread { run() } else { DispatchQueue.main.async(execute: run) }
         }
     }
 
@@ -700,26 +699,17 @@ public enum PaneStatus: Equatable {
 
     private func eval(_ js: String) async throws -> Any? {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Any?, Error>) in
-            let run = {
-                self.webView.evaluateJavaScript(js) { result, error in
-                    if let error {
-                        cont.resume(throwing: error)
-                    } else {
-                        cont.resume(returning: result)
-                    }
+            webView.evaluateJavaScript(js) { result, error in
+                if let error {
+                    cont.resume(throwing: error)
+                } else {
+                    cont.resume(returning: result)
                 }
             }
-            // WKWebView 必须主线程调用
-            if Thread.isMainThread { run() } else { DispatchQueue.main.async(execute: run) }
         }
     }
 
     private func pumpRunLoop(_ seconds: TimeInterval) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            await MainActor.run {
-                RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1))
-            }
-        }
+        try? await Task.sleep(nanoseconds: UInt64(max(seconds, 0) * 1_000_000_000))
     }
 }

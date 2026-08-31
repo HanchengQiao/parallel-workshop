@@ -9,7 +9,7 @@ auth-backup/
 # 依赖
 node_modules/
 scripts/node_modules/
-scripts/package-lock.json
+Windows/edge-extension/_metadata/
 
 # 系统文件
 .DS_Store

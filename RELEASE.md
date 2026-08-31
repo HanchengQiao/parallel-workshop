@@ -12,13 +12,13 @@
 **成本**：注册免费（Microsoft 官方确认"向 Microsoft Edge 计划提交扩展不收取注册费"）。
 
 1. 注册微软账号 → [Microsoft Partner Center](https://partner.microsoft.com/) → 注册「Microsoft Edge 计划」（个人/公司，需身份验证，可能数天）
-2. 本地准备：`bash scripts/build-edge-extension.sh`（已自动生成商店图标 + `build/edge-extension.zip`）
+2. 本地准备：`bash scripts/build-edge-extension.sh`（生成用户下载包与 manifest 位于根目录的 `build/edge-extension-store.zip`）
 3. Partner Center 提交扩展包（zip）：
    - 名称：平行工作台（Parallel Workbench）
    - 简短说明：多模型平行问答：一次提问，DeepSeek/Kimi/通义/文心/ChatGPT 并排回答
-   - 详细说明：见 `edge-extension/STORE_LISTING.md`
-   - 隐私政策：本扩展不上传任何数据；所有登录态、对话数据都留在你自己的浏览器里
-   - 权限说明：declarativeNetRequest（仅为在工作台页面内嵌入各平台官网）、storage
+   - 详细说明：见 `Windows/edge-extension/STORE_LISTING.md`
+   - 隐私政策：扩展不运营自己的中转服务器；问题和附件只发送到用户勾选的第三方 AI 平台，登录态保存在浏览器配置中
+   - 权限说明：declarativeNetRequest（仅工作台顶层域的 iframe）、storage、scripting、webNavigation、debugger（尽力而为的附件拖放）
    - 注意：提交前按 Partner Center 提示处理 manifest 中的 `key` 字段（商店会分配正式 ID）
 4. 审核通过后：用户在商店一键安装
 
@@ -33,7 +33,7 @@
    APPLE_ID="you@example.com" APPLE_TEAM_ID="TEAMID" APP_APP_PASSWORD="xxxx-xxxx-xxxx-xxxx" \
    bash scripts/sign-release.sh
    ```
-5. `bash scripts/package-dmg.sh` → `build/ParallelWorkbench-0.1.0.dmg`
+5. `VERSION=X.Y.Z bash scripts/package-dmg.sh` → `build/ParallelWorkbench-X.Y.Z.dmg`
 6. 分发 DMG（网盘/网站/IM 均可），用户拖入即用，无任何警告
 
 ## 发布前检查清单

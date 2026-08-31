@@ -76,5 +76,12 @@ echo "   安装：打开 edge://extensions（或 chrome://extensions）→ 开�
 # 生成传输用 zip（拷到 Windows 机器解压后侧载）
 mkdir -p build
 rm -f build/edge-extension.zip
-(cd Windows/edge-extension && zip -rq ../../build/edge-extension.zip . -x ".*" -x "_metadata/*")
+(cd Windows && zip -rq ../build/edge-extension.zip edge-extension \
+  -x "edge-extension/.*" -x "edge-extension/_metadata/*" -x "edge-extension/**/*.DS_Store")
 echo "✅ 传输包已生成：build/edge-extension.zip"
+
+# 商店包要求 manifest.json 位于 zip 根目录；与带顶层目录的用户下载包分开生成。
+rm -f build/edge-extension-store.zip
+(cd Windows/edge-extension && zip -rq ../../build/edge-extension-store.zip . \
+  -x ".*" -x "_metadata/*" -x "**/.DS_Store")
+echo "✅ Edge 商店包已生成：build/edge-extension-store.zip"

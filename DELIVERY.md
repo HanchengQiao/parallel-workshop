@@ -11,7 +11,7 @@
 | 核心库（适配器 + 注入引擎） | `Sources/WorkbenchCore/` | ✅ |
 | 无人值守验收测试器 | `Sources/WorkbenchTester/` | ✅ |
 | 注入核心自检（夹具） | `--selftest` | ✅ 7/7 |
-| Edge/Chrome MV3 扩展 | `edge-extension/` | ✅ 骨架 + 胶水层验证（真机加载待手动） |
+| Edge/Chrome MV3 扩展 | `Windows/edge-extension/` | ✅ runtime 消息通道 + 本地胶水层验证（发布前仍需真机登录回归） |
 | 一键质量门禁 | `scripts/qa.sh` | ✅ 全绿 |
 | 打包/图标脚本 | `scripts/package-app.sh` `scripts/icon.swift` | ✅ |
 
@@ -26,7 +26,7 @@ open "build/ParallelWorkbench.app"
 swift run WorkbenchTester [--only=deepseek,kimi] [--probe-only] [--force] [--width=420] [问题]
 swift run WorkbenchTester --selftest        # 注入核心自检
 swift run WorkbenchTester --backup-auth     # 备份登录态
-swift run WorkbenchTester --restore-auth    # 恢复登录态（防 Safari 清历史）
+swift run WorkbenchTester --restore-auth    # 恢复应用自己的 WebKit 登录态
 swift run WorkbenchTester --cookies         # 登录凭证审计
 
 # 质量门禁
@@ -34,7 +34,7 @@ bash scripts/qa.sh
 
 # Edge 扩展
 bash scripts/build-edge-extension.sh
-# Edge → edge://extensions → 开发者模式 → 加载已解压的扩展 → edge-extension/
+# Edge → edge://extensions → 开发者模式 → 加载已解压的扩展 → Windows/edge-extension/
 ```
 
 ## 验收证据（2026-08-29 自动测试实录）
@@ -59,8 +59,8 @@ bash scripts/build-edge-extension.sh
 ## 核心设计要点
 
 - **无 API、无付费依赖**：嵌入各平台官方网页客户端
-- **登录态继承 Safari**：WKWebView 默认数据存储与 Safari 共享 cookie
-- **登录态备份/恢复**：防 Safari 清历史/存储损坏（已实战救回一次）
+- **应用内登录态**：WKWebView 使用本应用独立的持久数据存储，不继承 Safari
+- **登录态备份/恢复**：防应用存储损坏或迁移时丢失登录态
 - **脱离谷歌生态**：macOS 原生应用；Windows 走 Edge 扩展（微软生态）
 - **不提供代理**：国际平台走用户系统既有代理
 - **风控友好**：不自动化任何登录/验证；注入 = 定位输入框→设值→发送（五种发送策略按平台配置）

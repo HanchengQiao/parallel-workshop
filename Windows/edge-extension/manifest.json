@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "平行工作台",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "多模型平行问答工作台：统一输入一键同步发送到多个 AI 平台（Edge/Chrome）",
   "icons": {
     "16": "icons/16.png",
@@ -42,15 +42,6 @@
       "32": "icons/32.png"
     }
   },
-  "declarative_net_request": {
-    "rule_resources": [
-      {
-        "id": "strip-frame-guards",
-        "enabled": true,
-        "path": "rules.json"
-      }
-    ]
-  },
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtMLWrubqowsX7T7iFP9+yhkM7Fcwqy556bG5KlC0JaxHk4Y8Ouw7HaZGJEi2h/sWWUM9L/TYhFjJlno2cnc+HaFvuu1fx+GJLIEOjJASU9S4bH/AUela0k91wy8OACv3vA9WwsL/2nm+UBlkl9so+1v/R68x/diIp6CKgRLbPFXFshrL+gMfd+tSZeVJQZG1bRgXShv0smY2n5/qUGt8iAWnwYjCEQU8w0o4An7OPz8F80SJaDLrPhVjh/Z6osFKlGPpeZXoCj0C8sN4qzaTUIF+InmgDI/M93V7f1OA04tIcX4b+V99iW/AKMmNDe43si61/hojQMmZYICfBAQfTwIDAQAB",
   "content_scripts": [
     {
@@ -76,6 +67,17 @@
       "run_at": "document_start",
       "all_frames": true,
       "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://open.weixin.qq.com/*"
+      ],
+      "js": [
+        "auth-bridge.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "ISOLATED"
     }
   ],
   "web_accessible_resources": [

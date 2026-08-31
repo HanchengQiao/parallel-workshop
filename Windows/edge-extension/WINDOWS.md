@@ -1,10 +1,12 @@
 # Windows 版：Edge 扩展安装与使用指南
 
+> main 当前为 v0.2.1 待发布代码；v0.2.0 有 DeepSeek 微信扫码回调缺陷，不建议继续分发。
+
 ## 产品形态对照
 
 | 平台 | 形态 | 登录态 |
 |---|---|---|
-| macOS | 原生应用（SwiftUI + WKWebView） | 继承 Safari |
+| macOS | 原生应用（SwiftUI + WKWebView） | 应用内独立 WebKit 持久存储 |
 | **Windows** | **Edge 扩展（MV3，本目录）** | **继承 Edge 浏览器** |
 
 两者共用同一套适配器/注入核心（`Sources/WorkbenchCore/Resources/` → `scripts/build-edge-extension.sh` 同步）。
@@ -58,9 +60,11 @@
 - **MV3 缓存（worker 与 manifest）**：改动 background.js / manifest.json 后即使重启 Edge 也可能仍跑旧代码——真正的缓存源是扩展目录里的 `_metadata/`（含 DNR 规则集缓存）。可靠刷新：manifest 版本号 +1，删除 `edge-extension/_metadata` 与 profile 下的 `Service Worker`、`Extension State`、`Extension Scripts`，重启 Edge
 - **重定向域名**：帧 URL 与适配器 origin 可能不同（tongyi.com → qianwen.com、yiyan → wenxin），帧匹配必须用 homeHosts 兜底
 
-## 登录围栏（防逃逸）
+## 登录围栏与 DeepSeek 微信回调
 
-- 平台登录流程必须留在工作台内：`intercept.js` 以 manifest `content_scripts`（`run_at: document_start` + `world: MAIN` + 全帧）注入，把 `window.open` 与 `target=_blank` 圈禁为帧内导航
+- 平台 iframe 保持 sandbox，禁止认证子帧导航整个工作台。
+- DeepSeek 微信授权完成后，认证桥严格校验 `open.weixin.qq.com` 来源与 DeepSeek callback 白名单，只导航 DeepSeek pane。
+- 问答注入/探测通过 `chrome.tabs.sendMessage` 直达隔离 content script，页面主世界无法读取或伪造回执。
 - DNR 规则与 host_permissions 需覆盖认证域名（appleid.apple.com / auth.openai.com / open.weixin.qq.com / passport.baidu.com 等），否则认证页在帧内被 X-Frame-Options 拦截
 - 已实测：DeepSeek「使用 Apple 账号登录」→ 无新开标签页，Apple 认证页在帧内完整渲染 ✅
 

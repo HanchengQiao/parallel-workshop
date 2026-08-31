@@ -239,7 +239,6 @@
       }
       if (btn) break;
     }
-    if (!btn && matches.length > 0) { try { btn = document.querySelector(chain[0]); } catch {} }
     if (btn) {
       const state = { disabled: !!btn.disabled, ariaDisabled: btn.getAttribute('aria-disabled') || null };
       btn.click();
@@ -248,13 +247,17 @@
         editorHTML: target.innerHTML ? target.innerHTML.slice(0, 200) : ''
       };
     }
-    return { ok: false, error: 'NO_BUTTON', attInfo, matchedCount: matches.length, matches: matches };
+    return { ok: false, error: 'NO_ENABLED_BUTTON', attInfo, matchedCount: matches.length, matches: matches };
   }
 
   if (cfg.send && cfg.send.type === 'combo') {
     // 按钮点击 + 合成回车双保险（调试定位用）
     const chain = cfg.send.selectors || (cfg.send.selector ? [cfg.send.selector] : []);
-    const btn = first(chain);
+    const btn = chain.flatMap((s) => { try { return Array.from(document.querySelectorAll(s)); } catch { return []; } })
+      .find((b) => {
+        const r = b.getBoundingClientRect ? b.getBoundingClientRect() : null;
+        return !b.disabled && b.getAttribute('aria-disabled') !== 'true' && !!(r && r.width > 0 && r.height > 0);
+      }) || null;
     const btnState = btn ? { disabled: !!btn.disabled, ariaDisabled: btn.getAttribute('aria-disabled') || null } : null;
     if (btn) { btn.click(); }
     await sleep(200);
@@ -273,7 +276,11 @@
   if (cfg.send && cfg.send.type === 'pointer') {
     // 完整指针事件序列（有些框架监听 pointerup/mouseup 而非 click）
     const chain = cfg.send.selectors || (cfg.send.selector ? [cfg.send.selector] : []);
-    const btn = first(chain);
+    const btn = chain.flatMap((s) => { try { return Array.from(document.querySelectorAll(s)); } catch { return []; } })
+      .find((b) => {
+        const r = b.getBoundingClientRect ? b.getBoundingClientRect() : null;
+        return !b.disabled && b.getAttribute('aria-disabled') !== 'true' && !!(r && r.width > 0 && r.height > 0);
+      }) || null;
     if (btn) {
       const r = btn.getBoundingClientRect();
       const x = r ? r.x + r.width / 2 : 0;
@@ -290,13 +297,14 @@
         buttonState: { disabled: !!btn.disabled, ariaDisabled: btn.getAttribute('aria-disabled') || null }
       };
     }
-    return { ok: false, error: 'NO_BUTTON', attInfo };
+    return { ok: false, error: 'NO_ENABLED_BUTTON', attInfo };
   }
 
   if (cfg.send && cfg.send.type === 'paragraph') {
     let ok = false;
     try { ok = document.execCommand('insertParagraph'); } catch {}
-    return { ok: true, attInfo, sent: ok ? 'paragraph' : 'paragraph-failed' };
+    return ok ? { ok: true, attInfo, sent: 'paragraph' }
+      : { ok: false, error: 'PARAGRAPH_NOT_ACCEPTED', attInfo };
   }
 
   const key = (type) => target.dispatchEvent(new KeyboardEvent(type, {
@@ -332,27 +340,23 @@ function __wbProbe(cfg) {
 
 }
 
-  window.addEventListener('message', async (event) => {
-    const d = event.data;
-    if (d && d.type && (d.type === 'WB_INJECT' || d.type === 'WB_PROBE' || d.type === 'WB_ATTACH_CHECK')) {
-      document.documentElement.setAttribute('data-wb-last-msg', d.type + '@' + Date.now());
-    }
-    if (!d || typeof d !== 'object' || !d.frameId) return;
-    // 令牌认证：仅接受携带本帧令牌的消息（首条消息建立令牌）
-    if (d.type === 'WB_INJECT' || d.type === 'WB_PROBE' || d.type === 'WB_ATTACH_CHECK') {
-      if (!d.tok) return;
-      if (window.__wbTok === undefined) window.__wbTok = d.tok;
-      else if (window.__wbTok !== d.tok) return;
-    }
-    try {
-      if (d.type === 'WB_INJECT') {
-        const result = await __wbInject(d.cfg);
-        result.__dbg = { atts: ((d.cfg && d.cfg.attachments) || []).map(a => ({ name: a && a.name, len: a && a.data ? a.data.length : 0, head: a && a.data ? String(a.data).slice(0, 8) : '' })), view: window.__wbAttachView || null, log: window.__wbAttLog || [] };
-        event.source.postMessage({ type: 'WB_RESULT', frameId: d.frameId, checkId: d.checkId, tok: d.tok, rid: d.rid, result }, '*');
-      } else if (d.type === 'WB_PROBE') {
-        const result = __wbProbe(d.cfg);
-        event.source.postMessage({ type: 'WB_RESULT', frameId: d.frameId, checkId: d.checkId, tok: d.tok, rid: d.rid, result }, '*');
-      } else if (d.type === 'WB_ATTACH_CHECK') {
+  const workbenchURL = chrome.runtime.getURL('workbench.html');
+
+  chrome.runtime.onMessage.addListener((d, sender, sendResponse) => {
+    if (!d || typeof d !== 'object' || !d.frameId) return false;
+    if (sender.id !== chrome.runtime.id || sender.url !== workbenchURL) return false;
+    if (!['WB_INJECT', 'WB_PROBE', 'WB_ATTACH_CHECK'].includes(d.type)) return false;
+    document.documentElement.setAttribute('data-wb-last-msg', d.type + '@' + Date.now());
+
+    (async () => {
+      try {
+        if (d.type === 'WB_INJECT') {
+          const result = await __wbInject(d.cfg);
+          sendResponse({ frameId: d.frameId, rid: d.rid, result });
+        } else if (d.type === 'WB_PROBE') {
+          const result = __wbProbe(d.cfg);
+          sendResponse({ frameId: d.frameId, result });
+        } else if (d.type === 'WB_ATTACH_CHECK') {
         // 隔离世界可读宿主 DOM（跨域 frame 也可读）：验证附件是否被平台接受（上传卡/文件名可见），
         // 并报告页面里可用的文件输入框（供适配器补全选择器、供诊断）。
         const bodyText = (document.body ? document.body.innerText : '') || '';
@@ -366,13 +370,15 @@ function __wbProbe(cfg) {
             name: i.name || ''
           }));
         } catch {}
-        event.source.postMessage({
-          type: 'WB_RESULT', frameId: d.frameId, checkId: d.checkId,
-          result: { attached: names.some((n) => bodyText.includes(n)), fileInputs }
-        }, '*');
+          sendResponse({
+            frameId: d.frameId,
+            result: { attached: names.some((n) => bodyText.includes(n)), fileInputs }
+          });
+        }
+      } catch (e) {
+        sendResponse({ frameId: d.frameId, rid: d.rid, result: { ok: false, error: String(e) } });
       }
-    } catch (e) {
-      event.source.postMessage({ type: 'WB_RESULT', frameId: d.frameId, tok: d.tok, result: { ok: false, error: String(e) } }, '*');
-    }
+    })();
+    return true;
   });
 })();

@@ -3,6 +3,8 @@
 # 用法: bash scripts/package-app.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+PWB_APP_VERSION="${VERSION:-$(python3 -c 'import json; print(json.load(open("Windows/edge-extension/manifest.json"))["version"])')}"
+[[ "$PWB_APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "❌ 无效版本号: $PWB_APP_VERSION"; exit 1; }
 
 APP="build/ParallelWorkbench.app"
 rm -rf "$APP"
@@ -39,7 +41,7 @@ if [ ! -f "build/AppIcon.icns" ]; then
 fi
 cp build/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -55,7 +57,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.2.0</string>
+	<string>${PWB_APP_VERSION}</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>CFBundleIconFile</key>

@@ -27,9 +27,11 @@
   const attachments = [];   // { name, mime, data(base64), size }
   let windowStart = 0;
   const frames = {};    // id -> { frame, adapter }
-  const paneTokens = {}; // id -> 随机令牌（消息协议认证）
   const lastSeen = {};  // id -> 最近一次探测响应时间戳
   const zooms = {};     // id -> 缩放倍数（CSS zoom 缩放 iframe，解决平台界面裁切）
+  const authChannelToken = crypto.randomUUID();
+  let workbenchTab = null;
+  let sending = false;
 
   function applyZoom(id, z) {
     zooms[id] = Math.min(1.3, Math.max(0.6, z));
@@ -106,7 +108,6 @@
       if (!wanted.has(id)) {
         p.frame.closest('.pane').remove();
         delete frames[id];
-        delete paneTokens[id];
         delete lastSeen[id];
       }
     }
@@ -125,27 +126,24 @@
       const pane = makePane(a);
       panesEl.appendChild(pane);
       frames[a.id] = { frame: pane.querySelector('iframe'), adapter: a };
-      paneTokens[a.id] = Math.random().toString(36).slice(2) + Date.now().toString(36);
       lastSeen[a.id] = 0;
       applyZoom(a.id, zooms[a.id] ?? 1);
     }
   }
 
-  // 翻页布局：仅调整可见/离屏类与 DOM 顺序（iframe 不重建）
+  // 翻页布局：只改 CSS，绝不 remove/append iframe；重挂 DOM 会销毁浏览上下文。
   function layoutPanes() {
     const list = enabledList();
     const start = Math.min(windowStart, Math.max(list.length - MAX_VISIBLE, 0));
     const visibleIds = new Set(list.slice(start, start + MAX_VISIBLE).map(a => a.id));
-    const ordered = [];
-    for (const a of list) {
+    for (let index = 0; index < list.length; index += 1) {
+      const a = list[index];
       const p = frames[a.id];
       if (!p) continue;
       const paneEl = p.frame.closest('.pane');
       paneEl.classList.toggle('offscreen', !visibleIds.has(a.id));
-      ordered.push(paneEl);
+      paneEl.style.order = String(index);
     }
-    // 可见窗格排前（按适配器顺序），离屏排后；appendChild 移动节点不触发 iframe 重载
-    for (const el of ordered) panesEl.appendChild(el);
     updatePaging();
   }
 
@@ -174,24 +172,39 @@
     for (const a of attachments) {
       const chip = document.createElement('span');
       chip.className = 'chip';
-      chip.innerHTML = `<span>📄 ${a.name}</span><button data-name="${a.name}">✕</button>`;
-      chip.querySelector('button').addEventListener('click', () => {
-        const i = attachments.findIndex(x => x.name === a.name);
+      const name = document.createElement('span');
+      name.textContent = '📄 ' + a.name;
+      const remove = document.createElement('button');
+      remove.textContent = '✕';
+      remove.addEventListener('click', () => {
+        const i = attachments.indexOf(a);
         if (i >= 0) attachments.splice(i, 1);
         renderChips();
         sendEl.disabled = !questionEl.value.trim() && attachments.length === 0;
       });
+      chip.append(name, remove);
       attachChipsEl.appendChild(chip);
     }
   }
   async function addFile(file) {
-    if (!file || file.size > 25 * 1024 * 1024) return;
-    const data = await new Promise((res) => {
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024 ||
+        attachments.reduce((sum, item) => sum + (item.size || 0), 0) + file.size > 50 * 1024 * 1024) {
+      progressEl.textContent = '⚠️ 单个附件上限 25MB，总附件上限 50MB';
+      setTimeout(() => { progressEl.textContent = ''; }, 5000);
+      return;
+    }
+    const data = await new Promise((resolve, reject) => {
       const r = new FileReader();
-      r.onload = () => res(String(r.result).split(',')[1] || '');
+      r.onload = () => resolve(String(r.result).split(',')[1] || '');
+      r.onerror = () => reject(r.error || new Error('文件读取失败'));
       r.readAsDataURL(file);
-    });
-    attachments.push({ name: file.name, mime: file.type || 'application/octet-stream', data });
+    }).catch(() => '');
+    if (!data) {
+      progressEl.textContent = '⚠️ 文件读取失败：' + file.name;
+      return;
+    }
+    attachments.push({ name: file.name, mime: file.type || 'application/octet-stream', data, size: file.size });
     renderChips();
     sendEl.disabled = !questionEl.value.trim() && attachments.length === 0;
   }
@@ -335,51 +348,13 @@
   }
 
   const probeCfg = (a) => ({ input: { selectors: a.input.selectors }, send: a.send, probe: a.probe || {}, text: '' });
-  const sendCfg = (a, text) => {
+  const sendCfg = (a, text, atts) => {
     const c = probeCfg(a);
     c.text = text;
-    c.attachments = attachments;
+    c.attachments = atts;
     if (a.attachment) c.attachment = a.attachment;
     return c;
   };
-
-  window.addEventListener('message', (event) => {
-    const d = event.data;
-    if (!d || d.type !== 'WB_RESULT' || !d.frameId) return;
-    const pane = frames[d.frameId];
-    if (!pane) return;
-    // 消息协议认证：回执必须来自对应窗格，且携带该窗格令牌
-    if (pane.frame.contentWindow !== event.source) return;
-    if (!d.tok || d.tok !== paneTokens[d.frameId]) return;
-    if (d.result && d.result.input !== undefined) {
-      lastSeen[d.frameId] = Date.now();
-      updateBadge(d.frameId, d.result);
-    } else if (d.result && d.result.ok !== undefined) {
-      let suffix = '';
-      const ai = d.result.attInfo;
-      if (ai && ai !== 'none') {
-        suffix = ai.startsWith('fileInput') ? ' · 附件已添加'
-          : ai.startsWith('drop') ? ' · 附件已拖放'
-          : ai.startsWith('already') ? ' · 附件已在输入框'
-          : ' · 附件: ' + ai;
-      }
-      showToast(d.frameId, d.result.ok ? ('已提交' + suffix) : ('失败: ' + (d.result.error || 'UNKNOWN')));
-      // 本轮状态机：成功即清空一次；全部尝试都失败则回填
-      if (d.rid && d.rid === roundState.rid) {
-        if (d.result.ok) {
-          roundState.succeeded += 1;
-          roundClearOnce();
-        } else {
-          roundState.failed += 1;
-        }
-        if (roundState.attempted > 0 &&
-            roundState.failed + roundState.succeeded >= roundState.attempted &&
-            roundState.succeeded === 0) {
-          roundRestore();
-        }
-      }
-    }
-  });
 
   function updateBadge(id, r) {
     const badge = document.getElementById('badge-' + id);
@@ -401,14 +376,16 @@
   }
 
   async function probeAll() {
-    ensureFrames(); // 不阻塞：先发探测，注入保障并行进行（未就绪的 frame 下一轮补上）
-    for (const [id, p] of Object.entries(frames)) {
+    await ensureFrames();
+    await Promise.all(Object.entries(frames).map(async ([id, p]) => {
       try {
-        if (p.frame.contentWindow) {
-          p.frame.contentWindow.postMessage({ type: 'WB_PROBE', frameId: id, tok: paneTokens[id], cfg: probeCfg(p.adapter) }, '*');
+        const reply = await sendFrameMessage(id, 'WB_PROBE', { cfg: probeCfg(p.adapter) }, 5000);
+        if (reply?.result && reply.result.input !== undefined) {
+          lastSeen[id] = Date.now();
+          updateBadge(id, reply.result);
         }
       } catch {}
-    }
+    }));
     // 空白/加载失败可见化：超过 25 秒无任何探测响应 → 标记「无响应」
     const now = Date.now();
     for (const id of Object.keys(frames)) {
@@ -420,33 +397,9 @@
     }
   }
 
-  // 向指定窗格发消息并等待内容脚本回执（带超时，用于附件接受度检查等询问）
-  function postAndWait(id, msg, timeoutMs) {
-    return new Promise((resolve) => {
-      let settled = false;
-      const checkId = 'chk' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-      const h = (ev) => {
-        const d = ev.data;
-        if (d && d.checkId === checkId && d.frameId === id) {
-          settled = true;
-          window.removeEventListener('message', h);
-          resolve(d.result || null);
-        }
-      };
-      window.addEventListener('message', h);
-      try {
-        const w = frames[id] && frames[id].frame && frames[id].frame.contentWindow;
-        if (!w) throw new Error('no-window');
-        w.postMessage({ ...msg, checkId, tok: paneTokens[id] }, '*');
-      } catch (e) {
-        settled = true;
-        window.removeEventListener('message', h);
-        resolve(null);
-      }
-      setTimeout(() => {
-        if (!settled) { window.removeEventListener('message', h); resolve(null); }
-      }, timeoutMs);
-    });
+  async function postAndWait(id, msg, timeoutMs) {
+    const reply = await sendFrameMessage(id, msg.type, msg, timeoutMs);
+    return reply?.result || null;
   }
 
   // 按 host 列表查 OOPIF 帧 ID（webNavigation 全帧可见，含跨域 iframe）。
@@ -456,11 +409,14 @@
       const tab = await chrome.tabs.getCurrent();
       if (!tab) return null;
       const fs = await chrome.webNavigation.getAllFrames({ tabId: tab.id });
+      const matches = [];
       for (const f of fs) {
         let h = '';
         try { h = new URL(f.url || '').hostname; } catch {}
-        if (hosts.some(x => h === x || h.endsWith('.' + x) || (f.url || '').includes(x))) return f.frameId;
+        if (hosts.some(x => h === x || h.endsWith('.' + x))) matches.push(f);
       }
+      const outer = matches.find(f => f.parentFrameId === 0);
+      return outer?.frameId ?? matches[0]?.frameId ?? null;
     } catch {}
     return null;
   }
@@ -473,6 +429,18 @@
     try { hosts.push(new URL(a.origin).hostname); } catch {}
     hosts.push(...(a.homeHosts || []));
     return frameIdOfHosts(hosts);
+  }
+
+  async function sendFrameMessage(id, type, payload = {}, timeoutMs = 6000) {
+    const frameId = await frameIdOfAdapter(id);
+    if (frameId == null) throw new Error('no-frame');
+    workbenchTab = workbenchTab || await chrome.tabs.getCurrent();
+    if (!workbenchTab?.id) throw new Error('no-tab');
+    const message = { ...payload, type, frameId };
+    return await Promise.race([
+      chrome.tabs.sendMessage(workbenchTab.id, message, { frameId }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('frame-message-timeout')), timeoutMs))
+    ]);
   }
 
   // 帧内编辑器中心（帧坐标）。executeScript func 在目标帧的隔离世界执行，DOM 共享可查询。
@@ -531,58 +499,36 @@
     };
   }
 
-  // 本轮发送状态：成功回执到达才清空；全部尝试失败则回填（防数据丢失）
-  let roundState = { rid: 0, attempted: 0, failed: 0, succeeded: 0, sentText: '', sentAtts: [] };
-  let roundCleared = false;
-
-  function roundClearOnce() {
-    if (roundCleared) return;
-    roundCleared = true;
-    questionEl.value = '';
-    attachments.length = 0;
-    renderChips();
-    sendEl.disabled = true;
-  }
-
-  function roundRestore() {
-    if (roundCleared) return;
-    questionEl.value = roundState.sentText;
-    attachments.splice(0, attachments.length, ...roundState.sentAtts);
-    renderChips();
-    sendEl.disabled = !questionEl.value.trim() && attachments.length === 0;
-    progressEl.textContent = '⚠️ 本轮全部窗格发送失败，问题与附件已回填';
-    setTimeout(() => { progressEl.textContent = ''; }, 6000);
-  }
-
   async function send() {
+    if (sending) return;
     window.__wbAttachLog = window.__wbAttachLog || [];
     window.__wbAttachLog.push({ step: 'send-start', atts: attachments.length, text: questionEl.value.trim().slice(0, 10) });
     const text = questionEl.value.trim();
     if (!text && attachments.length === 0) return;   // 附件-only 允许发送
-    // 开新一轮：rid 自增，回执按 rid 归属本轮
-    roundState = {
-      rid: roundState.rid + 1,
-      attempted: 0, failed: 0, succeeded: 0,
-      sentText: questionEl.value,
-      sentAtts: attachments.slice()
-    };
-    roundCleared = false;
-    ensureFrames(); // 不阻塞发送：并行保障注入，未就绪帧由诚实检查兜底
-    window.__wbAttachLog.push({ step: 'after-ensure', atts: attachments.length });
+    sending = true;
+    sendEl.disabled = true;
+    attachBtnEl.disabled = true;
+    const rid = crypto.randomUUID();
+    const sentText = questionEl.value;
+    const sentAtts = attachments.slice();
+    await ensureFrames();
+    window.__wbAttachLog.push({ step: 'after-ensure', atts: sentAtts.length });
     // —— 附件通道规划：有文件输入框选择器的平台走内容脚本文件赋值；其余走 CDP 拖放 ——
     // 两条通道按平台互斥，杜绝同一附件被注入两次。
     const attPlan = {};        // id -> 'input' | 'cdp'
     const cdpDispatched = {};  // id -> bool（仅 cdp 平台）
-    const attNames = attachments.map(a => a.name);
+    const attNames = sentAtts.map(a => a.name);
     for (const [id, p] of Object.entries(frames)) {
       const sel = p.adapter.attachment && p.adapter.attachment.selectors;
       attPlan[id] = sel && sel.length ? 'input' : 'cdp';
     }
-    if (attachments.length > 0) {
+    const cdpAccepted = {};
+    const attachmentBlocked = new Set();
+    if (sentAtts.length > 0) {
       try {
         const tab = await chrome.tabs.getCurrent();
         if (tab) {
-          const items = attachments.map(a => ({ mime: a.mime, data: a.data, name: a.name }));
+          const items = sentAtts.map(a => ({ mime: a.mime, data: a.data, name: a.name }));
           for (const [id, p] of Object.entries(frames)) {
             if (!enabled.has(id)) continue;
             const host = FRAME_HOSTS[id];
@@ -609,8 +555,10 @@
               await new Promise(r => setTimeout(r, 2000));
               const chk = await postAndWait(id, { type: 'WB_ATTACH_CHECK', frameId: id, names: attNames }, 3000);
               const accepted = !!(chk && chk.attached);
+              cdpAccepted[id] = accepted;
               window.__wbAttachLog.push({ id, plan: 'cdp', accepted });
               showToast(id, accepted ? '附件已注入' : '附件未被平台接受，请手动添加');
+              if (!accepted) attachmentBlocked.add(id);
             } catch (e) {
               cdpDispatched[id] = false;
               window.__wbAttachLog.push({ id, plan: 'cdp', dispatched: false, error: e.message });
@@ -625,7 +573,7 @@
       }
     }
     const now = Date.now();
-    let count = 0;
+    const jobs = [];
     let skipped = 0;
     // 发送前帧域名复核：帧若已漂移到非本平台域名，绝不把问题/附件发过去
     let frameUrlByFrameId = {};
@@ -669,24 +617,124 @@
           skipped += 1;
           continue;
         }
-        const cfg = sendCfg(p.adapter, text);
+        if (attachmentBlocked.has(id)) {
+          showToast(id, '附件未被接受，已跳过发送以避免漏附件');
+          skipped += 1;
+          continue;
+        }
+        const cfg = sendCfg(p.adapter, text, sentAtts);
         // 附件：仅让规划通道对应的帧保留附件（input 平台走内容脚本；cdp 平台仅在拖放派发失败时兜底）
-        if (attachments.length > 0) {
+        if (sentAtts.length > 0) {
           const keep = attPlan[id] === 'input' || (attPlan[id] === 'cdp' && !cdpDispatched[id]);
           if (!keep) { delete cfg.attachments; delete cfg.attachment; }
         }
-        p.frame.contentWindow.postMessage({ type: 'WB_INJECT', frameId: id, tok: paneTokens[id], rid: roundState.rid, cfg }, '*');
-        count += 1;
+        jobs.push((async () => {
+          try {
+            const reply = await sendFrameMessage(id, 'WB_INJECT', { rid, cfg }, 12000);
+            const result = reply?.result || { ok: false, error: 'EMPTY_RESULT' };
+            let suffix = '';
+            const ai = result.attInfo;
+            if (ai && ai !== 'none') {
+              suffix = ai.startsWith('fileInput') ? ' · 附件已添加'
+                : ai.startsWith('drop') ? ' · 附件已拖放'
+                : ' · 附件: ' + ai;
+            }
+            showToast(id, result.ok ? ('已提交' + suffix) : ('失败: ' + (result.error || 'UNKNOWN')));
+            return { id, ok: result.ok === true };
+          } catch (error) {
+            showToast(id, '失败: ' + String(error));
+            return { id, ok: false };
+          }
+        })());
       } catch (e) {
         showToast(id, '失败: ' + e);
         skipped += 1;
       }
     }
-    progressEl.textContent = '已向 ' + count + ' 个窗口提交' + (skipped > 0 ? '，' + skipped + ' 个未就绪跳过' : '');
-    setTimeout(() => { progressEl.textContent = ''; }, 4000);
-    roundState.attempted = count;
-    if (count === 0) roundRestore();   // 一个都没发出去：立即回填
-    sendEl.disabled = true;
+    const results = await Promise.all(jobs);
+    const succeeded = results.filter(r => r.ok).length;
+    const failed = results.length - succeeded;
+    if (succeeded > 0) {
+      if (questionEl.value === sentText) questionEl.value = '';
+      for (const sent of sentAtts) {
+        const index = attachments.indexOf(sent);
+        if (index >= 0) attachments.splice(index, 1);
+      }
+      renderChips();
+      progressEl.textContent = `已提交 ${succeeded}/${results.length} 个窗口` +
+        (failed || skipped ? `，${failed + skipped} 个失败或跳过` : '');
+    } else {
+      progressEl.textContent = '⚠️ 本轮没有窗口发送成功，问题与附件已保留';
+    }
+    setTimeout(() => { progressEl.textContent = ''; }, 6000);
+    sending = false;
+    attachBtnEl.disabled = false;
+    sendEl.disabled = !questionEl.value.trim() && attachments.length === 0;
+  }
+
+  function validatedDeepSeekCallback(raw) {
+    try {
+      const url = new URL(raw);
+      if (url.protocol !== 'https:' || url.hostname !== 'chat.deepseek.com') return null;
+      if (url.pathname !== '/api/v0/users/oauth/wechat/callback') return null;
+      if (url.username || url.password || url.hash) return null;
+      const code = url.searchParams.get('code') || '';
+      const state = url.searchParams.get('state') || '';
+      if (!code || code.length > 512 || state.length > 512) return null;
+      return url.href;
+    } catch {
+      return null;
+    }
+  }
+
+  async function verifyDeepSeekLogin() {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await ensureFrames();
+      try {
+        const pane = frames.deepseek;
+        if (!pane) return false;
+        const reply = await sendFrameMessage('deepseek', 'WB_PROBE', { cfg: probeCfg(pane.adapter) }, 5000);
+        const result = reply?.result;
+        if (!result) continue;
+        lastSeen.deepseek = Date.now();
+        updateBadge('deepseek', result);
+        if (result.input && !result.loggedOut && !result.loginModal && !result.challenge) {
+          progressEl.textContent = '✅ DeepSeek 登录状态已同步';
+          setTimeout(() => { progressEl.textContent = ''; }, 5000);
+          return true;
+        }
+      } catch {}
+    }
+    progressEl.textContent = '⚠️ 已接收微信回调，但尚未确认 DeepSeek 登录状态；请刷新该窗格重试';
+    setTimeout(() => { progressEl.textContent = ''; }, 8000);
+    return false;
+  }
+
+  chrome.runtime.onMessage.addListener((msg, sender) => {
+    if (!msg || msg.type !== 'WB_AUTH_CALLBACK_TRUSTED') return false;
+    if (sender.id !== chrome.runtime.id || msg.channelToken !== authChannelToken ||
+        msg.tabId !== workbenchTab?.id || msg.provider !== 'deepseek-wechat') return false;
+    const callback = validatedDeepSeekCallback(msg.url);
+    const pane = frames.deepseek;
+    if (!callback || !pane) return false;
+    progressEl.textContent = '微信授权完成，正在同步 DeepSeek 登录状态…';
+    lastSeen.deepseek = 0;
+    const badge = document.getElementById('badge-deepseek');
+    if (badge) { badge.className = 'badge loading'; badge.textContent = '登录同步中'; }
+    pane.frame.src = callback;
+    verifyDeepSeekLogin();
+    return false;
+  });
+
+  async function registerWorkbenchChannel() {
+    workbenchTab = await chrome.tabs.getCurrent();
+    if (!workbenchTab?.id) throw new Error('无法识别工作台标签页');
+    const result = await chrome.runtime.sendMessage({
+      type: 'WB_REGISTER_WORKBENCH',
+      channelToken: authChannelToken
+    });
+    if (!result?.ok || result.tabId !== workbenchTab.id) throw new Error('工作台认证通道注册失败');
   }
 
   // —— 版本更新（GitHub Releases；侧载扩展无法全自动重载，做到「一键下载 + 两步引导」）——
@@ -735,6 +783,7 @@
   }
 
   // —— 启动 ——
+  await registerWorkbenchChannel();
   renderChecks();
   renderPanes();
   setInterval(probeAll, 8000);

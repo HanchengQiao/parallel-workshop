@@ -1,16 +1,19 @@
 #!/bin/bash
 # 完整交付包打包：macOS 应用（通用二进制）+ Windows/Edge 扩展 + 源代码 + 产品说明文档
-# 用法：bash scripts/package-delivery.sh [版本号，默认 0.1.9]
+# 用法：bash scripts/package-delivery.sh 0.2.1
 set -euo pipefail
 cd "$(dirname "$0")/.."
-V="${1:-0.2.0}"
+V="${1:?用法: bash scripts/package-delivery.sh X.Y.Z}"
 
 echo "==> 1/5 打包 macOS 应用（通用二进制）"
-bash scripts/package-app.sh >/dev/null 2>&1 && echo "    ✅ build/ParallelWorkbench.app"
-VERSION="$V" bash scripts/package-dmg.sh 2>/dev/null || echo "    ⚠️ DMG 打包跳过（hdiutil 不可用）"
+VERSION="$V" bash scripts/package-app.sh >/dev/null 2>&1
+echo "    ✅ build/ParallelWorkbench.app"
+VERSION="$V" bash scripts/package-dmg.sh >/dev/null
+echo "    ✅ build/ParallelWorkbench-${V}.dmg"
 
 echo "==> 2/5 打包 Edge 扩展"
-bash scripts/build-Windows/edge-extension.sh >/dev/null 2>&1 && echo "    ✅ build/edge-extension.zip"
+bash scripts/build-edge-extension.sh >/dev/null 2>&1
+echo "    ✅ build/edge-extension.zip"
 
 echo "==> 3/5 组装交付目录"
 STAGE="build/delivery/平行工作台-v${V}"
@@ -25,15 +28,15 @@ fi
 
 # Windows/Edge
 cp build/edge-extension.zip "$STAGE/Windows/"
-mkdir -p "$STAGE/Windows/Windows/edge-extension"
-(cd Windows/edge-extension && tar --exclude='_metadata' --exclude='.DS_Store' -cf - .) | (cd "$STAGE/Windows/Windows/edge-extension" && tar -xf -)
+mkdir -p "$STAGE/Windows/edge-extension"
+(cd Windows/edge-extension && tar --exclude='_metadata' --exclude='.DS_Store' -cf - .) | (cd "$STAGE/Windows/edge-extension" && tar -xf -)
 
 # 源代码（排除构建产物）
 rsync -a --exclude '.build' --exclude 'node_modules' --exclude '.tester-bin' --exclude 'test-output' \
   --exclude '.DS_Store' --exclude 'build' --exclude '__pycache__' \
   Sources scripts Windows/edge-extension Package.swift README.md DELIVERY.md RELEASE.md install.sh LICENSE \
   homebrew npm-launcher .gitignore "$STAGE/源代码/" 2>/dev/null || \
-  (cd "$(pwd)" && tar --exclude='.build' --exclude='node_modules' --exclude='.tester-bin' --exclude='test-output' --exclude='.DS_Store' --exclude='build' --exclude='__pycache__' -cf - Sources scripts Windows/edge-extension Package.swift README.md DELIVERY.md RELEASE.md install.sh homebrew npm-launcher .gitignore | (cd "$STAGE/源代码" && tar -xf -))
+  (cd "$(pwd)" && tar --exclude='.build' --exclude='node_modules' --exclude='.tester-bin' --exclude='test-output' --exclude='.DS_Store' --exclude='build' --exclude='__pycache__' -cf - Sources scripts Windows/edge-extension Package.swift README.md DELIVERY.md RELEASE.md install.sh LICENSE homebrew npm-launcher .gitignore | (cd "$STAGE/源代码" && tar -xf -))
 
 # 主文档（单独文件）
 cp "交付说明/产品说明与代码解读.md" "$STAGE/产品说明与代码解读.md"

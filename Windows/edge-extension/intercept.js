@@ -14,6 +14,38 @@
   } catch {}
   if (!insideWorkbench) return;
 
+  // DeepSeek 的微信 QR 页在用户确认授权后会执行 window.top.location = callback。
+  // 外层平台 iframe 必须保留 sandbox，不能允许 QR 子帧导航整个工作台；因此在 MAIN world
+  // 读取微信长轮询写入的 wx_errcode/wx_code，并把严格限定的 callback 交给隔离世界桥接。
+  (() => {
+    try {
+      const here = new URL(location.href);
+      if (here.origin !== 'https://open.weixin.qq.com' || here.pathname !== '/connect/qrconnect') return;
+      const rawRedirect = here.searchParams.get('redirect_uri') || '';
+      const redirect = new URL(rawRedirect);
+      if (redirect.origin !== 'https://chat.deepseek.com' ||
+          redirect.pathname !== '/api/v0/users/oauth/wechat/callback') return;
+
+      let delivered = false;
+      const timer = setInterval(() => {
+        if (delivered || Number(window.wx_errcode) !== 405) return;
+        const code = typeof window.wx_code === 'string' ? window.wx_code : '';
+        if (!code || code.length > 512) return;
+        const callback = new URL(redirect.href);
+        callback.searchParams.set('code', code);
+        callback.searchParams.set('state', here.searchParams.get('state') || '');
+        delivered = true;
+        clearInterval(timer);
+        window.postMessage({
+          channel: 'parallel-workbench-auth-v1',
+          type: 'DEEPSEEK_WECHAT_CALLBACK',
+          url: callback.href
+        }, here.origin);
+      }, 50);
+      window.addEventListener('pagehide', () => clearInterval(timer), { once: true });
+    } catch {}
+  })();
+
   if (window.__wb_open_intercepted) return;
   window.__wb_open_intercepted = true;
 

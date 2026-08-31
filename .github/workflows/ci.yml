@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
+      - name: Install QA dependencies
+        run: npm ci --prefix scripts --ignore-scripts --no-audit --no-fund
+      - name: Swift and extension QA
+        run: bash scripts/qa.sh
+      - name: Verify distributable extension archive
+        run: |
+          unzip -t build/edge-extension.zip
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('build/edge-extension.zip') as archive:
+              names = archive.namelist()
+          assert names and all(name == 'edge-extension/' or name.startswith('edge-extension/') for name in names)
+          assert 'edge-extension/manifest.json' in names
+          assert 'edge-extension/install.bat' in names
+          with zipfile.ZipFile('build/edge-extension-store.zip') as archive:
+              store_names = archive.namelist()
+          assert 'manifest.json' in store_names
+          assert not any(name.startswith('edge-extension/') for name in store_names)
+          PY

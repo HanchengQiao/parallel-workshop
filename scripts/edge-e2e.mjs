@@ -7,11 +7,13 @@
 //     --load-extension="$(cd Windows/edge-extension && pwd)" \
 //     --remote-debugging-port=9223 --no-first-run about:blank &
 // 然后：curl -s -X PUT "http://127.0.0.1:9223/json/new?chrome-extension%3A%2F%2F<扩展ID>%2Fworkbench.html"
-// 用法：node scripts/edge-e2e.mjs <扩展ID>
+// 默认只做无副作用回归；显式加 --send 才向文心单个平台发送测试消息。
+// 用法：node scripts/edge-e2e.mjs <扩展ID> [--send]
 import { readFileSync } from 'node:fs';
 
 const EXT_ID = process.argv[2] || 'eeppnjgcjioaohaaoaknkkafhodccmmf';
-const PORT = 9223;
+const SEND = process.argv.includes('--send');
+const PORT = Number(process.env.PWB_EDGE_PORT || 9223);
 const BASE = process.env.PWB_BASE || decodeURIComponent(new URL('..', import.meta.url).pathname);
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -59,24 +61,40 @@ const ui = JSON.parse(await cdp(page.webSocketDebuggerUrl, `JSON.stringify({
 console.log('UI 对齐:', JSON.stringify(ui));
 if (ui.checks < 3 || ui.visiblePanes > 3) { console.log('❌ UI 对齐失败'); process.exit(1); }
 
+// 1.1 翻页不得重建任何 iframe 浏览上下文。
+const preserved = JSON.parse(await cdp(page.webSocketDebuggerUrl, `(async()=>{
+  const ids=['chatgpt','deepseek','kimi','tongyi','yiyan'];
+  const refs=Object.fromEntries(ids.map(id=>[id,document.getElementById('frame-'+id).contentWindow]));
+  document.getElementById('page-right').click();
+  await new Promise(r=>setTimeout(r,150));
+  document.getElementById('page-left').click();
+  await new Promise(r=>setTimeout(r,150));
+  return JSON.stringify(Object.fromEntries(ids.map(id=>[id,refs[id]===document.getElementById('frame-'+id).contentWindow])));
+})()`));
+console.log('翻页上下文保留:', JSON.stringify(preserved));
+if (Object.values(preserved).some(v => !v)) { console.log('❌ 翻页重建了 iframe'); process.exit(1); }
+
 // 2) 探测链路：等待角标更新
 await sleep(15000);
 const badges = JSON.parse(await cdp(page.webSocketDebuggerUrl, `JSON.stringify([...document.querySelectorAll('.badge')].map(b => b.textContent))`));
 console.log('角标:', JSON.stringify(badges));
 if (badges.every(b => b === '加载中')) { console.log('❌ 探测无响应'); process.exit(1); }
 
-// 3) 发送链路：向游客平台（文心）真实发送
-// 3.1 翻页让文心窗格进入可见区（可见区 iframe 加载更及时）
-for (let i = 0; i < 3; i++) {
-  await cdp(page.webSocketDebuggerUrl, `document.getElementById('page-right') && document.getElementById('page-right').click()`);
-  await sleep(1200);
+if (!SEND) {
+  console.log('✅ Edge 无副作用回归通过（UI + iframe 保活 + runtime 探测）');
+  process.exit(0);
 }
-// 3.2 轮询等待文心角标就绪（badges 按适配器顺序覆盖全部窗格含离屏，文心是第 5 个）
+
+// 3) 发送链路：向游客平台（文心）真实发送
+// 3.1 取消其他四个平台，只保留文心，避免测试脚本误广播。
+await cdp(page.webSocketDebuggerUrl, `(()=>{for(const label of document.querySelectorAll('#checks label')){const cb=label.querySelector('input');if(cb&&cb.checked&&!label.textContent.includes('文心'))cb.click()}return true})()`);
+await sleep(2500);
+// 3.2 轮询等待文心角标就绪
 let ready = false;
 for (let i = 0; i < 60 && !ready; i++) {
   await sleep(1500);
   const badges = JSON.parse(await cdp(page.webSocketDebuggerUrl, `JSON.stringify([...document.querySelectorAll('.badge')].map(b => b.textContent))`));
-  ready = badges.length === 5 && badges[4] === '就绪';
+  ready = badges.length === 1 && badges[0] === '就绪';
 }
 console.log('文心窗格就绪:', ready);
 const adapters = JSON.parse(readFileSync(BASE + 'Windows/edge-extension/lib/adapters/index.json', 'utf8'));
