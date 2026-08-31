@@ -35,6 +35,36 @@ VERSION="$VERSION" bash scripts/package-app.sh > "$STAGE/audit/BUILD-macOS.log" 
 VERSION="$VERSION" bash scripts/package-dmg.sh >> "$STAGE/audit/BUILD-macOS.log" 2>&1
 bash scripts/build-edge-extension.sh > "$STAGE/audit/BUILD-Edge.log" 2>&1
 hdiutil verify "build/ParallelWorkbench-${VERSION}.dmg" > "$STAGE/audit/VERIFY-DMG.log" 2>&1
+MOUNT_DIR="$(mktemp -d /tmp/pwb-external-audit-mount.XXXXXX)"
+cleanup_mount() {
+  hdiutil detach "$MOUNT_DIR" > /dev/null 2>&1 || true
+  rmdir "$MOUNT_DIR" > /dev/null 2>&1 || true
+}
+trap cleanup_mount EXIT
+hdiutil attach "build/ParallelWorkbench-${VERSION}.dmg" -readonly -nobrowse -mountpoint "$MOUNT_DIR" > /dev/null
+DMG_APP="$MOUNT_DIR/ParallelWorkbench.app"
+test -x "$DMG_APP/Contents/MacOS/ParallelWorkbench"
+DMG_APP_VERSION="$(plutil -extract CFBundleShortVersionString raw "$DMG_APP/Contents/Info.plist")"
+DMG_APP_ARCHS="$(lipo -archs "$DMG_APP/Contents/MacOS/ParallelWorkbench")"
+test "$DMG_APP_VERSION" = "$VERSION"
+if [[ " $DMG_APP_ARCHS " != *" arm64 "* || " $DMG_APP_ARCHS " != *" x86_64 "* ]]; then
+  echo "❌ DMG 内 App 缺少通用架构：$DMG_APP_ARCHS"
+  exit 1
+fi
+{
+  printf 'CFBundleShortVersionString=%s\n' "$DMG_APP_VERSION"
+  printf 'CFBundleIdentifier=%s\n' "$(plutil -extract CFBundleIdentifier raw "$DMG_APP/Contents/Info.plist")"
+  printf 'LSMinimumSystemVersion=%s\n' "$(plutil -extract LSMinimumSystemVersion raw "$DMG_APP/Contents/Info.plist")"
+  printf 'Architectures=%s\n\n' "$DMG_APP_ARCHS"
+  printf '%s\n' '--- codesign metadata ---'
+  codesign -dvv "$DMG_APP" 2>&1 || true
+  printf '\n%s\n' '--- codesign verification ---'
+  codesign --verify --deep --strict --verbose=2 "$DMG_APP" 2>&1 || true
+  printf '\n%s\n' '--- Gatekeeper assessment (expected rejection for unsigned direct build) ---'
+  spctl -a -vv -t execute "$DMG_APP" 2>&1 || true
+} > "$STAGE/audit/VERIFY-macOS-app-and-signing.log"
+cleanup_mount
+trap - EXIT
 ditto -c -k --sequesterRsrc --keepParent build/ParallelWorkbench.app "$STAGE/artifacts/ParallelWorkbench.app.zip"
 cp "build/ParallelWorkbench-${VERSION}.dmg" "$STAGE/artifacts/"
 cp build/edge-extension.zip build/edge-extension-store.zip "$STAGE/artifacts/"
@@ -47,6 +77,10 @@ fi
 
 echo "==> 3/7 导出精确源码快照"
 git archive --format=tar "$COMMIT" | tar -xf - -C "$STAGE/source"
+if git ls-tree -r "$COMMIT" | awk '$1 == "120000" { print }' | grep -q .; then
+  echo "❌ 源码快照包含符号链接，需外审前逐项批准"
+  exit 1
+fi
 git ls-tree -r --name-only "$COMMIT" > "$STAGE/audit/TRACKED_FILES.txt"
 git ls-tree -r "$COMMIT" > "$STAGE/audit/TRACKED_TREE_WITH_MODES.txt"
 git log -20 --date=iso-strict --pretty=format:'%H%x09%ad%x09%an%x09%s' > "$STAGE/audit/GIT_LOG_LAST_20.txt"
@@ -58,9 +92,17 @@ fi
 echo "==> 4/7 敏感文件与高置信密钥扫描"
 SUSPECT_FILE="$AUDIT_ROOT/secret-scan-${SHORT}.tmp"
 rm -f "$SUSPECT_FILE"
-if find "$STAGE/source" -type f \( -iname '*.pem' -o -iname '*.p12' -o -iname '*.pfx' -o -iname '*.key' -o -iname '.env' -o -iname '.env.*' \) -print | grep -q .; then
+if find "$STAGE/source" -type f \( \
+  -iname '*.pem' -o -iname '*.p12' -o -iname '*.pfx' -o -iname '*.key' \
+  -o -iname '*.mobileprovision' -o -iname '*.keystore' -o -iname '*.jks' \
+  -o -iname '.env' -o -iname '.env.*' -o -iname '.npmrc' -o -iname '.netrc' \
+  -o -iname '.git-credentials' \) -print | grep -q .; then
   echo "❌ 源码快照包含潜在敏感文件"
-  find "$STAGE/source" -type f \( -iname '*.pem' -o -iname '*.p12' -o -iname '*.pfx' -o -iname '*.key' -o -iname '.env' -o -iname '.env.*' \) -print
+  find "$STAGE/source" -type f \( \
+    -iname '*.pem' -o -iname '*.p12' -o -iname '*.pfx' -o -iname '*.key' \
+    -o -iname '*.mobileprovision' -o -iname '*.keystore' -o -iname '*.jks' \
+    -o -iname '.env' -o -iname '.env.*' -o -iname '.npmrc' -o -iname '.netrc' \
+    -o -iname '.git-credentials' \) -print
   exit 1
 fi
 if rg -n -I -g '!scripts/package-external-audit.sh' \
