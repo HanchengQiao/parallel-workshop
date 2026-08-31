@@ -33,7 +33,14 @@ else
 fi
 
 echo "==> 获取 Release 元数据"
-curl -fsSL -H "Accept: application/vnd.github+json" "$PWB_RELEASE_API" -o "$PWB_INSTALL_TMP/release.json"
+if ! curl -fsSL -H "Accept: application/vnd.github+json" "$PWB_RELEASE_API" -o "$PWB_INSTALL_TMP/release.json"; then
+  if [ -n "$PWB_REQUESTED_VERSION" ]; then
+    echo "❌ 未找到 v${PWB_REQUESTED_VERSION} Release，未执行安装"
+  else
+    echo "❌ 当前没有可安装的稳定 Release；预发布版本不会被一键安装脚本自动安装"
+  fi
+  exit 1
+fi
 
 PWB_META="$(python3 - "$PWB_INSTALL_TMP/release.json" <<'PY'
 import json, re, sys

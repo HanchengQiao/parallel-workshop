@@ -46,6 +46,7 @@ requireText(qa.includes('build-edge-extension.sh > /dev/null || FAIL=1'), 'QA �
 requireText(updaterCaller.includes('expectedSHA256: rel.dmgSHA256'), 'macOS 更新调用未传递 SHA-256');
 requireText(installer.includes('SHA-256 校验通过') && installer.includes('shasum -a 256'),
   'install.sh 未强制校验 SHA-256');
+requireText(installer.includes('当前没有可安装的稳定 Release'), 'install.sh 缺少无稳定版本的明确错误提示');
 
 if (fail.length) {
   console.error('❌ 安全回归失败：\n- ' + fail.join('\n- '));
