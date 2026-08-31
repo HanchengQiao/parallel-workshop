@@ -14,8 +14,8 @@ if exist "%TARGET%" rmdir /s /q "%TARGET%"
 xcopy /e /i /q "%~dp0*" "%TARGET%" >nul
 echo        完成。
 
-echo [2/4] 创建快捷方式（桌面 + 开始菜单，指向防白屏启动器）
-powershell -NoProfile -Command "$ws=New-Object -ComObject WScript.Shell; $desk=[Environment]::GetFolderPath('Desktop'); $sm=[Environment]::GetFolderPath('StartMenu'); foreach($dir in @($desk,$sm)){ $lnk=$ws.CreateShortcut((Join-Path $dir '平行工作台.lnk')); $lnk.TargetPath='%TARGET%\launch.bat'; $lnk.WorkingDirectory='%TARGET%'; $lnk.Save() }; Write-Output '        已创建：桌面 + 开始菜单 平行工作台.lnk（防白屏启动）'"
+echo [2/4] 创建快捷方式（桌面 + 开始菜单，直接打开工作台应用窗口）
+powershell -NoProfile -Command "$ws=New-Object -ComObject WScript.Shell; $desk=[Environment]::GetFolderPath('Desktop'); $sm=[Environment]::GetFolderPath('StartMenu'); foreach($dir in @($desk,$sm)){ $lnk=$ws.CreateShortcut((Join-Path $dir '平行工作台.lnk')); $lnk.TargetPath='%TARGET%\launch.bat'; $lnk.WorkingDirectory='%TARGET%'; $lnk.Save() }; Write-Output '        已创建：桌面 + 开始菜单 平行工作台.lnk（直接启动）'"
 echo.
 
 echo [3/4] 已把扩展路径复制到剪贴板（下一步直接粘贴）

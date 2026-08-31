@@ -56,10 +56,11 @@ const ui = JSON.parse(await cdp(page.webSocketDebuggerUrl, `JSON.stringify({
   checks: document.querySelectorAll('#checks input[type=checkbox]').length,
   visiblePanes: document.querySelectorAll('.pane:not(.offscreen)').length,
   allPanes: document.querySelectorAll('.pane').length,
-  pageInd: document.getElementById('page-ind').textContent
+  pageInd: document.getElementById('page-ind').textContent,
+  startupVisible: !!document.getElementById('startup-overlay')
 })`));
 console.log('UI 对齐:', JSON.stringify(ui));
-if (ui.checks < 3 || ui.visiblePanes > 3) { console.log('❌ UI 对齐失败'); process.exit(1); }
+if (ui.checks < 3 || ui.visiblePanes > 3 || ui.startupVisible) { console.log('❌ UI 初始化失败或加载层未退出'); process.exit(1); }
 
 // 1.1 翻页不得重建任何 iframe 浏览上下文。
 const preserved = JSON.parse(await cdp(page.webSocketDebuggerUrl, `(async()=>{

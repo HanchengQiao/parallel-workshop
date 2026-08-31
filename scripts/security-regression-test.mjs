@@ -8,6 +8,7 @@ const requireText = (condition, message) => { if (!condition) fail.push(message)
 const workbench = read('Windows/edge-extension/workbench.js');
 const content = read('Windows/edge-extension/content-template.js');
 const background = read('Windows/edge-extension/background.js');
+const launcher = read('Windows/edge-extension/launch.bat');
 const intercept = read('Windows/edge-extension/intercept.js');
 const manifest = JSON.parse(read('Windows/edge-extension/manifest.json'));
 const qa = read('scripts/qa.sh');
@@ -15,6 +16,7 @@ const delivery = read('scripts/package-delivery.sh');
 const release = read('scripts/make-release.sh');
 const updaterCaller = read('Sources/ParallelWorkbench/WorkbenchModel.swift');
 const installer = read('install.sh');
+const workbenchHTML = read('Windows/edge-extension/workbench.html');
 
 const layoutBody = workbench.match(/function layoutPanes\(\)[\s\S]*?\n  }\n\n  function renderPanes/)?.[0] || '';
 requireText(layoutBody && !layoutBody.includes('appendChild'), 'layoutPanes 仍会重挂 iframe DOM');
@@ -23,6 +25,12 @@ requireText(!workbench.includes('paneTokens'), '仍保留页面可见 pane token
 requireText(!content.includes("window.addEventListener('message'"), '问答 content script 仍接收 window.postMessage');
 requireText(content.includes('chrome.runtime.onMessage.addListener'), 'content script 未注册 runtime 通道');
 requireText(background.includes('WB_AUTH_CALLBACK_CANDIDATE'), '后台缺少认证 callback 校验');
+requireText(!background.includes("url: 'about:blank'") && !background.includes('chrome.tabs.update'),
+  '工具栏启动仍通过 blank 窗口二次导航');
+requireText(!launcher.includes('--no-startup-window') && !/timeout\s+\/t/i.test(launcher) && launcher.includes('--app='),
+  'Windows 启动器仍包含 blank 预热或固定延迟');
+requireText(workbenchHTML.includes('startup-overlay') && workbench.includes("startupOverlay?.classList.add('done')"),
+  '工作台缺少可见加载状态或初始化完成收口');
 requireText(intercept.includes('DEEPSEEK_WECHAT_CALLBACK'), '微信 MAIN world 缺少 callback 捕获');
 
 const authBridge = manifest.content_scripts?.find(item => item.js?.includes('auth-bridge.js'));

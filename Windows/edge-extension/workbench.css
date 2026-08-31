@@ -1,5 +1,18 @@
 html, body { margin: 0; height: 100%; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif; background: #f3f4f6; }
 body { display: flex; flex-direction: column; }
+#startup-overlay { position: fixed; inset: 0; z-index: 100000; display: grid; place-items: center; background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 55%, #eef2ff 100%); opacity: 1; transition: opacity .22s ease; }
+#startup-overlay.done { opacity: 0; pointer-events: none; }
+.startup-card { width: min(420px, calc(100vw - 48px)); padding: 28px 30px; border: 1px solid rgba(148, 163, 184, .28); border-radius: 18px; background: rgba(255,255,255,.9); box-shadow: 0 18px 60px rgba(30, 64, 175, .13); backdrop-filter: blur(14px); }
+.startup-mark { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 16px; border-radius: 14px; background: linear-gradient(135deg, #1d4ed8, #6366f1); color: #fff; font-size: 15px; font-weight: 800; letter-spacing: .7px; box-shadow: 0 8px 22px rgba(37, 99, 235, .26); }
+.startup-copy { display: flex; flex-direction: column; gap: 5px; color: #0f172a; }
+.startup-copy strong { font-size: 19px; }
+.startup-copy span { color: #64748b; font-size: 13px; }
+.startup-track { position: relative; height: 4px; margin-top: 20px; overflow: hidden; border-radius: 999px; background: #dbeafe; }
+.startup-bar { position: absolute; inset-block: 0; width: 38%; border-radius: inherit; background: linear-gradient(90deg, #2563eb, #818cf8); animation: startup-progress 1.05s ease-in-out infinite; }
+#startup-overlay.startup-error .startup-mark { background: #dc2626; }
+#startup-overlay.startup-error .startup-bar { width: 100%; animation: none; background: #dc2626; }
+@keyframes startup-progress { 0% { transform: translateX(-110%); } 55% { transform: translateX(105%); } 100% { transform: translateX(270%); } }
+@media (prefers-reduced-motion: reduce) { .startup-bar { animation-duration: 2.4s; } #startup-overlay { transition: none; } }
 #topbar { display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%); }
 #title { font-weight: 700; white-space: nowrap; font-size: 16px; color: #fff; letter-spacing: 0.5px; }
 #question { flex: 1; min-height: 56px; padding: 12px 14px; border: 2px solid transparent; border-radius: 10px; font-size: 16px; line-height: 1.5; resize: vertical; background: #fff; outline: none; transition: box-shadow .15s, border-color .15s; }

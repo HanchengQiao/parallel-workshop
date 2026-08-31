@@ -6,6 +6,16 @@
 <link rel="stylesheet" href="workbench.css">
 </head>
 <body>
+<div id="startup-overlay" role="status" aria-live="polite">
+  <div class="startup-card">
+    <div class="startup-mark">PW</div>
+    <div class="startup-copy">
+      <strong>平行工作台</strong>
+      <span id="startup-text">正在启动工作台…</span>
+    </div>
+    <div class="startup-track"><div class="startup-bar"></div></div>
+  </div>
+</div>
 <div id="topbar">
   <span id="title">平行工作台</span>
   <textarea id="question" placeholder="输入问题（Enter 换行，Ctrl↩ 或点「发送」同步到所有勾选的模型）"></textarea>

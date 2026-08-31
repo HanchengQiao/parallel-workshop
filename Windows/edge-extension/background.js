@@ -1,10 +1,11 @@
 // 后台：点击图标打开工作台窗口；按需把 content.js 精准注入各平台 frame
 chrome.action.onClicked.addListener(() => {
-  // 先开空白窗口再导航：避免"导航先于扩展注册"被 ERR_BLOCKED_BY_CLIENT
-  chrome.windows.create({ url: 'about:blank', type: 'popup', width: 1500, height: 950 }, (win) => {
-    if (win?.tabs?.[0]?.id) {
-      chrome.tabs.update(win.tabs[0].id, { url: chrome.runtime.getURL('workbench.html') });
-    }
+  // action 回调只会在扩展注册完成后触发，可直接打开工作台；不要展示 blank 预热页。
+  chrome.windows.create({
+    url: chrome.runtime.getURL('workbench.html'),
+    type: 'popup',
+    width: 1500,
+    height: 950
   });
 });
 

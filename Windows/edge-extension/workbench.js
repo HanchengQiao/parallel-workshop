@@ -782,12 +782,24 @@
     } catch {}
   }
 
-  // —— 启动 ——
-  await registerWorkbenchChannel();
-  renderChecks();
-  renderPanes();
-  setInterval(probeAll, 8000);
-  setTimeout(probeAll, 3000);
-  setTimeout(checkUpdate, 5000);
-  setInterval(checkUpdate, 6 * 3600 * 1000);
+  // —— 启动：立即显示品牌加载层；完成本地初始化后淡出，不做人为延迟。——
+  const startupOverlay = document.getElementById('startup-overlay');
+  const startupText = document.getElementById('startup-text');
+  try {
+    await registerWorkbenchChannel();
+    renderChecks();
+    renderPanes();
+    setInterval(probeAll, 8000);
+    setTimeout(probeAll, 3000);
+    setTimeout(checkUpdate, 5000);
+    setInterval(checkUpdate, 6 * 3600 * 1000);
+    requestAnimationFrame(() => {
+      startupOverlay?.classList.add('done');
+      setTimeout(() => startupOverlay?.remove(), 260);
+    });
+  } catch (error) {
+    if (startupText) startupText.textContent = '启动失败，请在 edge://extensions 重新加载扩展';
+    startupOverlay?.classList.add('startup-error');
+    console.error('Parallel Workbench startup failed', error);
+  }
 })();
