@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>注入自检夹具</title></head>
+<body>
+<div id="app">
+  <textarea id="react-input" placeholder="Message DeepSeek"></textarea>
+  <div id="ce-editor" contenteditable="true"></div>
+  <div id="slate-editor" contenteditable="true" data-slate-editor="true">
+    <div data-slate-node="element">
+      <span data-slate-node="text">
+        <span data-slate-leaf="true"><span data-slate-string="true">占位</span></span>
+      </span>
+    </div>
+  </div>
+  <textarea id="btn-input"></textarea>
+  <input type="file" id="file-input" style="display:none">
+  <div id="drop-zone" style="width:200px;height:60px;border:2px dashed #999">DROP</div>
+  <button id="send-btn" aria-label="发送消息" disabled>发送</button>
+  <div id="send-div" class="send-button-container">SEND</div>
+</div>
+<script>
+window.__log = {};
+(function () {
+  const ri = document.getElementById('react-input');
+  ri.addEventListener('input', () => { window.__log.reactValue = ri.value; });
+  ri.addEventListener('keydown', (e) => { if (e.key === 'Enter') window.__log.reactEnter = true; });
+
+  const ce = document.getElementById('ce-editor');
+  ce.addEventListener('input', () => { window.__log.ceValue = ce.textContent; });
+
+  const slate = document.getElementById('slate-editor');
+  slate.addEventListener('input', () => { window.__log.slateValue = slate.textContent; });
+
+  const ti = document.getElementById('btn-input');
+  ti.addEventListener('input', () => {
+    window.__log.btnValue = ti.value;
+    document.getElementById('send-btn').disabled = !(ti.value || '').trim();
+  });
+
+  const btn = document.getElementById('send-btn');
+  btn.addEventListener('click', () => {
+    if (!btn.disabled) window.__log.btnClicked = (window.__log.btnClicked || 0) + 1;
+  });
+
+  const sd = document.getElementById('send-div');
+  sd.addEventListener('click', () => { window.__log.divClicked = (window.__log.divClicked || 0) + 1; });
+
+  // 附件取证：file input 与拖放区
+  const fi = document.getElementById('file-input');
+  fi.addEventListener('change', () => {
+    window.__log.fileCount = fi.files.length;
+    window.__log.fileName = fi.files[0] ? fi.files[0].name : null;
+  });
+  const dz = document.getElementById('drop-zone');
+  dz.addEventListener('dragover', (e) => { e.preventDefault(); });
+  dz.addEventListener('dragenter', () => { window.__log.enterFired = true; });
+  dz.addEventListener('drop', (e) => {
+    e.preventDefault();
+    window.__log.dropFired = true;
+    window.__log.dropDT = !!e.dataTransfer;
+    window.__log.dropCount = e.dataTransfer ? e.dataTransfer.files.length : 0;
+    window.__log.dropName = e.dataTransfer && e.dataTransfer.files[0] ? e.dataTransfer.files[0].name : null;
+  });
+})();
+</script>
+</body>
+</html>

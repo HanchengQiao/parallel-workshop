@@ -1,0 +1,16 @@
+# 构建产物与缓存
+.build/
+build/
+test-output/
+auth-backup/
+.tester-bin/
+.tmp/
+
+# 依赖
+node_modules/
+scripts/node_modules/
+scripts/package-lock.json
+
+# 系统文件
+.DS_Store
+*.swiftpm

@@ -1,0 +1,57 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        {
+          "header": "x-frame-options",
+          "operation": "remove"
+        },
+        {
+          "header": "content-security-policy",
+          "operation": "remove"
+        }
+      ]
+    },
+    "condition": {
+      "requestDomains": [
+        "appleid.apple.com",
+        "auth.openai.com",
+        "chat.deepseek.com",
+        "chat.openai.com",
+        "chatgpt.com",
+        "kimi.moonshot.cn",
+        "open.weixin.qq.com",
+        "passport.baidu.com",
+        "wenxin.baidu.com",
+        "www.kimi.com",
+        "www.moonshot.cn",
+        "www.qianwen.com",
+        "www.tongyi.com",
+        "yiyan.baidu.com"
+      ],
+      "initiatorDomains": [
+        "eeppnjgcjioaohaaoaknkkafhodccmmf",
+        "appleid.apple.com",
+        "auth.openai.com",
+        "chat.deepseek.com",
+        "chat.openai.com",
+        "chatgpt.com",
+        "kimi.moonshot.cn",
+        "open.weixin.qq.com",
+        "passport.baidu.com",
+        "wenxin.baidu.com",
+        "www.kimi.com",
+        "www.moonshot.cn",
+        "www.qianwen.com",
+        "www.tongyi.com",
+        "yiyan.baidu.com"
+      ],
+      "resourceTypes": [
+        "sub_frame"
+      ]
+    }
+  }
+]
