@@ -30,6 +30,23 @@ done
 for f in Windows/edge-extension/manifest.json Windows/edge-extension/lib/adapters/index.json; do
   python3 -m json.tool "$f" > /dev/null || FAIL=1
 done
+python3 - <<'PY' || FAIL=1
+import zipfile
+
+with zipfile.ZipFile('build/edge-extension.zip') as archive:
+    names = archive.namelist()
+    assert names and all(name == 'edge-extension/' or name.startswith('edge-extension/') for name in names)
+    assert 'edge-extension/manifest.json' in names
+    assert 'edge-extension/install.bat' in names
+    assert 'edge-extension/launch.bat' in names
+
+with zipfile.ZipFile('build/edge-extension-store.zip') as archive:
+    names = archive.namelist()
+    assert 'manifest.json' in names
+    assert not any(name.startswith('edge-extension/') for name in names)
+    for forbidden in ('install.bat', 'launch.bat', 'README.md', 'WINDOWS.md', 'STORE_LISTING.md'):
+        assert forbidden not in names
+PY
 node scripts/security-regression-test.mjs || FAIL=1
 node scripts/background-launch-test.mjs || FAIL=1
 node scripts/palette-regression-test.mjs || FAIL=1

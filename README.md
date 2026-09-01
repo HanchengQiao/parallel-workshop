@@ -1,11 +1,11 @@
 # 平行工作台（多模型平行比较工作台）
 
 > **你是哪个平台？**
-> - 🖥️ **macOS 用户** → 看 [`macOS/`](macOS/README.md) 目录（一键安装：`curl -fsSL https://raw.githubusercontent.com/HanchengQiao/parallel-workshop/main/install.sh | bash`）
+> - 🖥️ **macOS 用户** → 看 [`macOS/`](macOS/README.md) 目录（一键安装：`curl -fsSL https://raw.githubusercontent.com/porcelaintech/parallel-workshop/main/install.sh | bash`）
 > - 🪟 **Windows 用户** → 看 [`Windows/`](Windows/README.md) 目录（下载 `edge-extension.zip` 侧载到 Edge）
 > - 两个目录各自独立完整，**fork/下载时请按你的平台选择对应目录**
 
-> **发布状态：** v0.2.0 已标记为预发布，存在 Edge/DeepSeek 微信扫码回调缺陷。`main` 已包含修复，新的稳定资产将在双端回归完成后以 v0.2.1 发布；在此之前请勿向普通用户推荐 v0.2.0。
+> **发布状态：** v0.2.2 是当前稳定版；v0.2.0 已标记为预发布且不建议继续分发。
 
 ---
 
@@ -20,13 +20,13 @@
 - **不提供代理服务**：国际平台走用户系统里已有的代理环境
 - **风险管控**：不自动化任何登录/验证流程（人工在 pane 内完成）；注入只做「定位输入框→设值→发送」，不轮询、不自动重试
 
-## 安装（下一个稳定版发布后）
+## 安装
 
-开源仓库发布后（见 `RELEASE.md`），用户可选任一种方式安装：
+用户可从 GitHub 最新稳定 Release 安装：
 
 ```sh
-# macOS：从最新稳定 Release 下载、强制校验 SHA-256 后原子安装；当前修复阶段会拒绝安装预发布版
-curl -fsSL https://raw.githubusercontent.com/HanchengQiao/parallel-workshop/main/install.sh | bash
+# macOS：从最新稳定 Release 下载、强制校验 SHA-256 后原子安装
+curl -fsSL https://raw.githubusercontent.com/porcelaintech/parallel-workshop/main/install.sh | bash
 ```
 
 > 未签名开源分发：install.sh 校验 GitHub 资产摘要后安装并移除隔离属性；正式对外分发仍建议签名公证。npm 包和 Homebrew tap 尚未发布，因此不再宣传对应命令。
@@ -39,7 +39,7 @@ swift build && open -n .build/arm64-apple-macosx/debug/ParallelWorkbench
 # 或 swift run ParallelWorkbench
 ```
 
-每个 pane 有独立标题栏：平台名、状态角标（绿=就绪 / 橙=未登录 / 红=需验证或不可达 / 紫=未找到输入框）、放大/缩小按钮（登录或读长回答时放大该 pane）、刷新按钮、发送结果反馈提示（5 秒自动消失）。
+每个 pane 有独立标题栏：平台名、文字状态角标、放大/缩小按钮、刷新按钮和发送结果反馈；工作台外壳只使用暖白、石墨、鼠尾草三色，通过明度、描边和文案区分状态。
 
 ## 无人值守验收测试
 

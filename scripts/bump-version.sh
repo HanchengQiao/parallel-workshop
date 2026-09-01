@@ -11,11 +11,15 @@ v = sys.argv[1]
 
 p = "Windows/edge-extension/manifest.json"
 d = json.load(open(p)); d["version"] = v
-json.dump(d, open(p, "w"), ensure_ascii=False, indent=2)
+with open(p, "w") as fp:
+    json.dump(d, fp, ensure_ascii=False, indent=2)
+    fp.write("\n")
 
 p = "npm-launcher/package.json"
 d = json.load(open(p)); d["version"] = v
-json.dump(d, open(p, "w"), ensure_ascii=False, indent=2)
+with open(p, "w") as fp:
+    json.dump(d, fp, ensure_ascii=False, indent=2)
+    fp.write("\n")
 
 p = "homebrew/Casks/parallel-workbench.rb"
 s = open(p).read()

@@ -2,13 +2,13 @@
 
 > 本目录是 **Windows 产品入口**。macOS 用户请使用仓库根目录下 `macOS/` 目录（或直接执行 `install.sh`）。
 
-> v0.2.1 正在回归、尚未发布稳定资产；v0.2.0 存在 DeepSeek 微信扫码回调缺陷，不建议继续分发。
+> v0.2.2 是当前稳定版；v0.2.0 存在 DeepSeek 微信扫码回调缺陷，不建议继续分发。
 
 ## 从 GitHub 直接下载安装（命令行，Windows 10/11 自带 curl.exe 与 tar）
 
 ```bat
-set VERSION=X.Y.Z
-curl.exe -LO https://github.com/HanchengQiao/parallel-workshop/releases/download/v%VERSION%/edge-extension.zip
+set VERSION=0.2.2
+curl.exe -LO https://github.com/porcelaintech/parallel-workshop/releases/download/v%VERSION%/edge-extension.zip
 tar -xf edge-extension.zip
 cd edge-extension
 install.bat
@@ -39,7 +39,7 @@ install.bat
 
 ## 自动测试（已在 Mac 上的 Edge 真机通过）
 
-`scripts/edge-e2e.mjs` 在真实 Edge 中验证：UI 对齐（勾选框/最多3窗格/分页）、探测链路（状态角标真实更新）、发送链路（问题真实进入平台对话区并得到回答）。逐项结论：
+`scripts/edge-e2e.mjs` 在真实 Edge 中验证：UI 对齐（勾选框/按宽度显示1–3窗格/分页）、探测链路（状态角标真实更新）、发送链路（问题真实进入平台对话区并得到回答）。逐项结论：
 
 - [x] 扩展加载、工作台窗口打开
 - [x] 各平台 iframe 嵌入（CSP 剥离规则生效）

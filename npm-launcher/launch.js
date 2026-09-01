@@ -3,7 +3,7 @@
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 
-const REPO = process.env.PARALLEL_WORKBENCH_REPO || 'HanchengQiao/parallel-workshop';
+const REPO = process.env.PARALLEL_WORKBENCH_REPO || 'porcelaintech/parallel-workshop';
 const APP = '/Applications/ParallelWorkbench.app';
 
 function run(command, args, options = {}) {

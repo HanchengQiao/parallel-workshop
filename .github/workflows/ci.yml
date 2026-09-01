@@ -38,4 +38,6 @@ jobs:
               store_names = archive.namelist()
           assert 'manifest.json' in store_names
           assert not any(name.startswith('edge-extension/') for name in store_names)
+          for forbidden in ('install.bat', 'launch.bat', 'README.md', 'WINDOWS.md', 'STORE_LISTING.md'):
+              assert forbidden not in store_names
           PY

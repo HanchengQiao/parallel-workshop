@@ -18,7 +18,7 @@ public enum Updater {
 
     /// 仓库配置：环境变量 PWB_REPO 优先
     public static var repo: String {
-        ProcessInfo.processInfo.environment["PWB_REPO"] ?? "HanchengQiao/parallel-workshop"
+        ProcessInfo.processInfo.environment["PWB_REPO"] ?? "porcelaintech/parallel-workshop"
     }
 
     public static var currentVersion: String {

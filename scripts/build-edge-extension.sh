@@ -83,5 +83,6 @@ echo "✅ 传输包已生成：build/edge-extension.zip"
 # 商店包要求 manifest.json 位于 zip 根目录；与带顶层目录的用户下载包分开生成。
 rm -f build/edge-extension-store.zip
 (cd Windows/edge-extension && zip -rq ../../build/edge-extension-store.zip . \
-  -x ".*" -x "_metadata/*" -x "**/.DS_Store")
+  -x ".*" -x "_metadata/*" -x "**/.DS_Store" \
+  -x "install.bat" -x "launch.bat" -x "README.md" -x "WINDOWS.md" -x "STORE_LISTING.md")
 echo "✅ Edge 商店包已生成：build/edge-extension-store.zip"

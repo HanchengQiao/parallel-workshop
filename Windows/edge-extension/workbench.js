@@ -754,7 +754,7 @@
   }
 
   // —— 版本更新（GitHub Releases；侧载扩展无法全自动重载，做到「一键下载 + 两步引导」）——
-  const UPDATE_REPO = 'HanchengQiao/parallel-workshop';
+  const UPDATE_REPO = 'porcelaintech/parallel-workshop';
   const bannerEl = document.getElementById('update-banner');
 
   function isNewer(a, b) {

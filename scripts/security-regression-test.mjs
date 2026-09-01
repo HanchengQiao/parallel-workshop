@@ -15,6 +15,7 @@ const qa = read('scripts/qa.sh');
 const delivery = read('scripts/package-delivery.sh');
 const release = read('scripts/make-release.sh');
 const updaterCaller = read('Sources/ParallelWorkbench/WorkbenchModel.swift');
+const updater = read('Sources/WorkbenchCore/Updater.swift');
 const installer = read('install.sh');
 const workbenchHTML = read('Windows/edge-extension/workbench.html');
 const edgeE2E = read('scripts/edge-e2e.mjs');
@@ -62,6 +63,14 @@ requireText(updaterCaller.includes('expectedSHA256: rel.dmgSHA256'), 'macOS 更�
 requireText(installer.includes('SHA-256 校验通过') && installer.includes('shasum -a 256'),
   'install.sh 未强制校验 SHA-256');
 requireText(installer.includes('当前没有可安装的稳定 Release'), 'install.sh 缺少无稳定版本的明确错误提示');
+requireText(workbench.includes("const UPDATE_REPO = 'porcelaintech/parallel-workshop'"),
+  'Edge 更新通道未迁移到 porcelaintech/parallel-workshop');
+requireText(updater.includes('"porcelaintech/parallel-workshop"'),
+  'macOS 更新通道未迁移到 porcelaintech/parallel-workshop');
+requireText(installer.includes('porcelaintech/parallel-workshop'),
+  'macOS 安装脚本未迁移到 porcelaintech/parallel-workshop');
+requireText(release.includes('REPO="porcelaintech/parallel-workshop"'),
+  '发布脚本未迁移到 porcelaintech/parallel-workshop');
 
 if (!updateAssetSelectorBody) {
   fail.push('Edge 更新器缺少可验证的精确资产选择器');

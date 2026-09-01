@@ -2,7 +2,7 @@
 # 一键安装平行工作台：读取 GitHub Release 元数据 → 强制 SHA-256 校验 → 原子安装。
 set -euo pipefail
 
-PWB_REPOSITORY="${PARALLEL_WORKBENCH_REPO:-HanchengQiao/parallel-workshop}"
+PWB_REPOSITORY="${PARALLEL_WORKBENCH_REPO:-porcelaintech/parallel-workshop}"
 PWB_REQUESTED_VERSION="${PARALLEL_WORKBENCH_VERSION:-}"
 if [[ ! "$PWB_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
   echo "❌ 仓库名格式无效"

@@ -2,23 +2,23 @@
 
 > 本目录是 **macOS 产品入口**。Windows/Edge 用户请使用仓库根目录下 `Windows/` 目录。
 
-> main 当前为 v0.2.1 待发布代码；一键安装脚本只接受 GitHub 的最新稳定 Release，不会安装预发布资产。
+> v0.2.2 是当前稳定版；一键安装脚本只接受 GitHub 的最新稳定 Release，不会安装预发布资产。
 
 ## 从 GitHub 直接下载安装（命令行）
 
-**方式一：一键安装脚本（下一个稳定版发布后推荐）**
+**方式一：一键安装脚本（推荐）**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HanchengQiao/parallel-workshop/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/porcelaintech/parallel-workshop/main/install.sh | bash
 ```
 
 脚本会自动：下载最新版 DMG → 挂载 → 复制「平行工作台.app」到 /Applications → 去除隔离属性 → 启动。
 
-**方式二：手动下载 DMG（稳定版发布后）**
+**方式二：手动下载 DMG**
 
 ```bash
-VERSION=X.Y.Z
-curl -LO "https://github.com/HanchengQiao/parallel-workshop/releases/download/v${VERSION}/ParallelWorkbench-${VERSION}.dmg"
+VERSION=0.2.2
+curl -LO "https://github.com/porcelaintech/parallel-workshop/releases/download/v${VERSION}/ParallelWorkbench-${VERSION}.dmg"
 open "ParallelWorkbench-${VERSION}.dmg"
 # 把「平行工作台」拖进 Applications 即可
 ```

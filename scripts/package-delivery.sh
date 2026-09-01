@@ -1,6 +1,6 @@
 #!/bin/bash
 # 完整交付包打包：macOS 应用（通用二进制）+ Windows/Edge 扩展 + 源代码 + 产品说明文档
-# 用法：bash scripts/package-delivery.sh 0.2.1
+# 用法：bash scripts/package-delivery.sh X.Y.Z
 set -euo pipefail
 cd "$(dirname "$0")/.."
 V="${1:?用法: bash scripts/package-delivery.sh X.Y.Z}"

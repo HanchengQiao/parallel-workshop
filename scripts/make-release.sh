@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 
 VERSION="${1:?用法: bash scripts/make-release.sh X.Y.Z}"
 TAG="v${VERSION}"
-REPO="HanchengQiao/parallel-workshop"
+REPO="porcelaintech/parallel-workshop"
 
 if [ -n "$(git status --porcelain)" ]; then
   echo "❌ 工作区不干净，发布前请先提交或清理改动"
