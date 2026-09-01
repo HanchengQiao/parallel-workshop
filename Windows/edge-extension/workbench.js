@@ -769,6 +769,13 @@
     return false;
   }
 
+  function selectEdgeUpdateAsset(assets) {
+    const expectedName = 'edge-extension.zip';
+    return Array.isArray(assets)
+      ? assets.find(asset => asset && asset.name === expectedName)
+      : undefined;
+  }
+
   async function checkUpdate() {
     try {
       const resp = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`);
@@ -783,8 +790,8 @@
         bannerEl.innerHTML = '正在下载新版本…';
         try {
           const zrel = await (await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`)).json();
-          const asset = (zrel.assets || []).find(a => String(a.name).endsWith('.zip'));
-          if (!asset) throw new Error('无 zip 资产');
+          const asset = selectEdgeUpdateAsset(zrel.assets);
+          if (!asset) throw new Error('Release 缺少 edge-extension.zip');
           const blob = await (await fetch(asset.browser_download_url)).blob();
           const a = document.createElement('a');
           a.href = URL.createObjectURL(blob);

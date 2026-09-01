@@ -22,6 +22,7 @@ const edgeAttachMatrix = read('scripts/edge-attach-matrix.mjs');
 const edgeTargetHelper = read('scripts/edge-workbench-target.mjs');
 
 const layoutBody = workbench.match(/function layoutPanes\(\)[\s\S]*?\n  }\n\n  function renderPanes/)?.[0] || '';
+const updateAssetSelectorBody = workbench.match(/function selectEdgeUpdateAsset\(assets\) \{\n([\s\S]*?)\n  }/)?.[1] || '';
 requireText(layoutBody && !layoutBody.includes('appendChild'), 'layoutPanes 仍会重挂 iframe DOM');
 requireText(workbench.includes('chrome.tabs.sendMessage'), '工作台未迁移到 chrome.tabs.sendMessage');
 requireText(!workbench.includes('paneTokens'), '仍保留页面可见 pane token');
@@ -61,6 +62,23 @@ requireText(updaterCaller.includes('expectedSHA256: rel.dmgSHA256'), 'macOS 更�
 requireText(installer.includes('SHA-256 校验通过') && installer.includes('shasum -a 256'),
   'install.sh 未强制校验 SHA-256');
 requireText(installer.includes('当前没有可安装的稳定 Release'), 'install.sh 缺少无稳定版本的明确错误提示');
+
+if (!updateAssetSelectorBody) {
+  fail.push('Edge 更新器缺少可验证的精确资产选择器');
+} else {
+  try {
+    const selectEdgeUpdateAsset = new Function('assets', updateAssetSelectorBody);
+    const storeAsset = { name: 'edge-extension-store.zip', browser_download_url: 'store' };
+    const userAsset = { name: 'edge-extension.zip', browser_download_url: 'user' };
+    requireText(selectEdgeUpdateAsset([storeAsset, userAsset]) === userAsset,
+      'Edge 更新器会在商店包排在前面时误选 edge-extension-store.zip');
+    requireText(selectEdgeUpdateAsset([storeAsset]) === undefined,
+      'Edge 更新器在缺少 edge-extension.zip 时未失败关闭');
+  } catch (error) {
+    fail.push(`Edge 更新资产选择器无法执行：${error}`);
+  }
+}
+requireText(!workbench.includes("endsWith('.zip')"), 'Edge 更新器仍按任意 .zip 后缀选择资产');
 
 if (fail.length) {
   console.error('❌ 安全回归失败：\n- ' + fail.join('\n- '));
