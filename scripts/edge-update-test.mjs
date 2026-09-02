@@ -23,7 +23,8 @@ function makeRelease(assets) {
   return { tag_name: 'v1.1.0', assets };
 }
 
-async function boot({ storeBuild, release, requestUpdateCheck, assetFetchFailures = 0 }) {
+async function boot({ storeBuild, release, requestUpdateCheck, assetFetchFailures = 0,
+  assetBodyFailures = 0 }) {
   const dom = new JSDOM(html, {
     runScripts: 'outside-only',
     pretendToBeVisual: true,
@@ -85,7 +86,13 @@ async function boot({ storeBuild, release, requestUpdateCheck, assetFetchFailure
       }
       return {
         ok: true,
-        blob: async () => ({ arrayBuffer: async () => new TextEncoder().encode(asset.name).buffer })
+        blob: async () => {
+          if (assetBodyFailures > 0) {
+            assetBodyFailures -= 1;
+            throw new Error('simulated half-open asset body failure');
+          }
+          return { arrayBuffer: async () => new TextEncoder().encode(asset.name).buffer };
+        }
       };
     }
     throw new Error(`测试中出现未声明的网络请求：${url}`);
@@ -220,7 +227,8 @@ const sideLoaded = await boot({
     { name: 'source.zip', browser_download_url: otherAssetURL },
     { name: 'edge-extension.zip', browser_download_url: userAssetURL, digest: `sha256:${VALID_DIGEST}` }
   ]),
-  assetFetchFailures: 2
+  assetFetchFailures: 1,
+  assetBodyFailures: 1
 });
 (await exposeUpdateBanner(sideLoaded, '下载更新')).click();
 await waitFor(() => sideLoaded.downloads.length === 1, '侧载版下载用户包');

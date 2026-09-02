@@ -116,7 +116,7 @@ requireText(distribution.channel === 'sideload' &&
 requireText(manifest.host_permissions?.includes('https://github.com/*') &&
   workbench.includes("crypto.subtle.digest('SHA-256'") &&
   workbench.includes('expectedEdgeAssetSHA256') && workbench.includes('new AbortController()') &&
-  workbench.includes('timeoutMs: 60000'),
+  workbench.includes('timeoutMs: 60000') && workbench.includes("return await response.blob()"),
   'Edge 侧载更新缺少 GitHub 下载权限或 SHA-256 强校验');
 
 if (fail.length) {

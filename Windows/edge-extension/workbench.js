@@ -914,7 +914,7 @@
       : undefined;
   }
 
-  async function fetchWithRetry(url, { attempts = 3, timeoutMs = 30000 } = {}) {
+  async function fetchWithRetry(url, { attempts = 3, timeoutMs = 30000, responseType = 'json' } = {}) {
     let lastError;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       const controller = new AbortController();
@@ -922,7 +922,10 @@
       try {
         const response = await fetch(url, { signal: controller.signal });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response;
+        // Consume the complete body while the AbortController timer is active;
+        // returning a Response here would leave a half-open body unbounded.
+        if (responseType === 'blob') return await response.blob();
+        return await response.json();
       } catch (error) {
         lastError = error;
       } finally {
@@ -986,11 +989,10 @@
 
   async function checkUpdate() {
     try {
-      const resp = await fetchWithRetry(
+      const rel = await fetchWithRetry(
         `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`,
-        { attempts: 2, timeoutMs: 15000 }
+        { attempts: 2, timeoutMs: 15000, responseType: 'json' }
       );
-      const rel = await resp.json();
       const latest = String(rel.tag_name || '').replace(/^v/, '');
       const current = chrome.runtime.getManifest().version;
       if (!latest || !isNewer(latest, current)) return;
@@ -1003,16 +1005,19 @@
         }
         bannerEl.innerHTML = '正在下载新版本…';
         try {
-          const zrel = await (await fetchWithRetry(
+          const zrel = await fetchWithRetry(
             `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`,
-            { attempts: 3, timeoutMs: 15000 }
-          )).json();
+            { attempts: 3, timeoutMs: 15000, responseType: 'json' }
+          );
           const asset = selectEdgeUpdateAsset(zrel.assets);
           if (!asset) throw new Error('Release 缺少 edge-extension.zip');
           const expectedSHA256 = expectedEdgeAssetSHA256(zrel, asset);
           if (!expectedSHA256) throw new Error('Release 缺少有效 SHA-256');
-          const response = await fetchWithRetry(asset.browser_download_url, { attempts: 3, timeoutMs: 60000 });
-          const blob = await response.blob();
+          const blob = await fetchWithRetry(asset.browser_download_url, {
+            attempts: 3,
+            timeoutMs: 60000,
+            responseType: 'blob'
+          });
           const actualSHA256 = await sha256Hex(await blob.arrayBuffer());
           if (actualSHA256 !== expectedSHA256) throw new Error('更新包 SHA-256 不匹配');
           const a = document.createElement('a');
