@@ -33,7 +33,10 @@
     "https://auth.openai.com/*",
     "https://chat.openai.com/*",
     "https://kimi.moonshot.cn/*",
-    "https://www.moonshot.cn/*"
+    "https://www.moonshot.cn/*",
+    "https://github.com/*",
+    "https://release-assets.githubusercontent.com/*",
+    "https://objects.githubusercontent.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -83,6 +86,17 @@
       "run_at": "document_start",
       "all_frames": true,
       "world": "ISOLATED"
+    },
+    {
+      "matches": [
+        "https://chat.deepseek.com/*"
+      ],
+      "js": [
+        "lib/model-preference.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
     }
   ],
   "web_accessible_resources": [

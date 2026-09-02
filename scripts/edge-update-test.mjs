@@ -8,6 +8,7 @@ const base = decodeURIComponent(new URL('..', import.meta.url).pathname);
 const html = readFileSync(base + 'Windows/edge-extension/workbench.html', 'utf8');
 const workbenchSource = readFileSync(base + 'Windows/edge-extension/workbench.js', 'utf8');
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const VALID_DIGEST = 'aa'.repeat(32);
 
 async function waitFor(predicate, label, timeout = 1500) {
   const started = Date.now();
@@ -32,6 +33,10 @@ async function boot({ storeBuild, release, requestUpdateCheck }) {
   if (!window.crypto.randomUUID) {
     window.crypto.randomUUID = () => '00000000-0000-4000-8000-000000000000';
   }
+  Object.defineProperty(window.crypto, 'subtle', {
+    configurable: true,
+    value: { digest: async () => new Uint8Array(32).fill(0xaa).buffer }
+  });
 
   const timers = [];
   const downloads = [];
@@ -66,12 +71,18 @@ async function boot({ storeBuild, release, requestUpdateCheck }) {
     if (url === 'chrome-extension://test/lib/adapters/index.json') {
       return { ok: true, json: async () => [] };
     }
+    if (url === 'chrome-extension://test/distribution.json') {
+      return { ok: true, json: async () => ({ channel: storeBuild ? 'edge-addons' : 'sideload' }) };
+    }
     if (url === 'https://api.github.com/repos/porcelaintech/parallel-workshop/releases/latest') {
       return { ok: true, json: async () => structuredClone(release) };
     }
     const asset = release.assets.find(item => item.browser_download_url === url);
     if (asset) {
-      return { ok: true, blob: async () => new window.Blob([asset.name]) };
+      return {
+        ok: true,
+        blob: async () => ({ arrayBuffer: async () => new TextEncoder().encode(asset.name).buffer })
+      };
     }
     throw new Error(`测试中出现未声明的网络请求：${url}`);
   };
@@ -203,18 +214,18 @@ const sideLoaded = await boot({
   release: makeRelease([
     { name: 'edge-extension-store.zip', browser_download_url: storeAssetURL },
     { name: 'source.zip', browser_download_url: otherAssetURL },
-    { name: 'edge-extension.zip', browser_download_url: userAssetURL }
+    { name: 'edge-extension.zip', browser_download_url: userAssetURL, digest: `sha256:${VALID_DIGEST}` }
   ])
 });
 (await exposeUpdateBanner(sideLoaded, '下载更新')).click();
 await waitFor(() => sideLoaded.downloads.length === 1, '侧载版下载用户包');
 if (sideLoaded.downloads[0].download !== 'edge-extension.zip' ||
-    sideLoaded.downloads[0].href !== userAssetURL ||
-    sideLoaded.fetchedURLs.includes(userAssetURL) || sideLoaded.fetchedURLs.includes(storeAssetURL) ||
+    !sideLoaded.downloads[0].href.startsWith('blob:edge-update-test-') ||
+    !sideLoaded.fetchedURLs.includes(userAssetURL) || sideLoaded.fetchedURLs.includes(storeAssetURL) ||
     sideLoaded.fetchedURLs.includes(otherAssetURL)) {
   throw new Error('侧载版没有精确选择 edge-extension.zip');
 }
-if (sideLoaded.updateChecks !== 0 || sideLoaded.reloads !== 0 || sideLoaded.objectURLs !== 0) {
+if (sideLoaded.updateChecks !== 0 || sideLoaded.reloads !== 0 || sideLoaded.objectURLs !== 1) {
   throw new Error('侧载版与商店更新路径发生了串路');
 }
 sideLoaded.dom.window.close();
@@ -234,4 +245,21 @@ if (missingUserAsset.downloads.length || missingUserAsset.fetchedURLs.includes(s
 }
 missingUserAsset.dom.window.close();
 
-console.log('✅ Edge 更新：商店原生检查/单次重载与侧载精确资产选择全部通过');
+// A mismatched release digest must fail closed before handing any file to Edge.
+const badDigest = await boot({
+  storeBuild: false,
+  release: makeRelease([
+    { name: 'edge-extension.zip', browser_download_url: userAssetURL, digest: `sha256:${'bb'.repeat(32)}` }
+  ])
+});
+(await exposeUpdateBanner(badDigest, '下载更新')).click();
+await waitFor(
+  () => badDigest.window.document.getElementById('update-banner').textContent.includes('下载失败'),
+  'SHA-256 不匹配时失败关闭'
+);
+if (badDigest.downloads.length || badDigest.objectURLs) {
+  throw new Error('SHA-256 不匹配时仍交付了更新包');
+}
+badDigest.dom.window.close();
+
+console.log('✅ Edge 更新：商店单次重载与侧载精确资产/SHA-256 强校验全部通过');

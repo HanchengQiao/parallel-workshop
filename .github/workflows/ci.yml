@@ -35,19 +35,25 @@ jobs:
           assert names and all(name == 'edge-extension/' or name.startswith('edge-extension/') for name in names)
           assert 'edge-extension/manifest.json' in names
           assert 'edge-extension/install.bat' in names
+          assert 'edge-extension/distribution.json' in names
+          assert 'edge-extension/lib/model-preference.js' in names
           with zipfile.ZipFile('build/edge-extension-store.zip') as archive:
               store_names = archive.namelist()
               store_manifest = json.loads(archive.read('manifest.json'))
           assert 'manifest.json' in store_names
           assert not any(name.startswith('edge-extension/') for name in store_names)
           assert 'key' not in store_manifest
+          assert not any('github.com' in item or 'githubusercontent.com' in item
+                         for item in store_manifest.get('host_permissions', []))
           store_files = {name for name in store_names if not name.endswith('/')}
           expected = {
-              'manifest.json', 'background.js', 'auth-bridge.js', 'intercept.js', 'content.js',
-              'workbench.html', 'workbench.js', 'workbench.css', 'lib/adapters/index.json',
+              'manifest.json', 'distribution.json', 'background.js', 'auth-bridge.js', 'intercept.js', 'content.js',
+              'workbench.html', 'workbench.js', 'workbench.css', 'lib/model-preference.js',
+              'lib/adapters/index.json',
               'icons/16.png', 'icons/32.png', 'icons/48.png', 'icons/128.png'
           }
           assert store_files == expected
+          assert json.loads(archive.read('distribution.json')) == {'channel': 'edge-addons'}
           PY
 
   windows-installer:
@@ -84,6 +90,19 @@ jobs:
           New-Item -ItemType Directory -Path $metadata -Force | Out-Null
           Set-Content -Path (Join-Path $metadata 'stale-cache') -Value 'must not be installed'
           Compress-Archive -Path (Join-Path $packageRoot 'edge-extension') -DestinationPath "$env:RUNNER_TEMP\edge-extension.zip" -Force
+      - name: Verify bounded fixed bootstrap command
+        shell: powershell
+        run: |
+          $downloaded = Join-Path $env:RUNNER_TEMP ('ParallelWorkbench-install-' + [Guid]::NewGuid().ToString('N') + '.ps1')
+          $url = "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/$env:GITHUB_SHA/install-windows.ps1"
+          try {
+            & curl.exe --fail --location --silent --show-error --retry 3 --retry-max-time 90 --connect-timeout 10 --max-time 60 $url --output $downloaded
+            if ($LASTEXITCODE -ne 0) { throw "bootstrap curl failed: $LASTEXITCODE" }
+            & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $downloaded -ArchivePath "$env:RUNNER_TEMP\edge-extension.zip" -NoLaunch -NoShortcuts -VerifyOnly
+            if ($LASTEXITCODE -ne 0) { throw "downloaded bootstrap failed: $LASTEXITCODE" }
+          } finally {
+            Remove-Item -LiteralPath $downloaded -Force -ErrorAction SilentlyContinue
+          }
       - name: Verify fast installer in non-ASCII and spaced path
         shell: powershell
         run: |

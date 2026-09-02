@@ -75,19 +75,31 @@ requireText(workflow.includes('runs-on: windows-latest') && workflow.includes('s
   'CI 必须使用 Windows PowerShell 5.1 真机解析和安装');
 requireText(workflow.includes('测试 用户\\Parallel Workbench'), 'CI 未覆盖中文与空格路径');
 requireText(workflow.includes('source-in-target update'), 'CI 未覆盖从安装目录重复更新');
+requireText(workflow.includes('Verify bounded fixed bootstrap command') &&
+  workflow.includes('--retry-max-time 90 --connect-timeout 10 --max-time 60'),
+  'CI 未执行带超时和重试上限的固定下载入口');
 
 for (const path of ['README.md', 'Windows/README.md', 'Windows/edge-extension/README.md',
   'Windows/edge-extension/WINDOWS.md', 'AGENT_INSTALL_PROMPT.md']) {
   const doc = read(path);
   requireText(doc.includes("$pwbInstaller = Join-Path $env:TEMP ('ParallelWorkbench-install-' + [Guid]::NewGuid().ToString('N')") &&
-    doc.includes('[Net.ServicePointManager]::SecurityProtocol') && doc.includes('-ErrorAction Stop') &&
+    doc.includes('& curl.exe --fail --location --silent --show-error --retry 3') &&
+    doc.includes('--connect-timeout 10 --max-time 60') &&
+    doc.includes('releases/latest/download/install-windows.ps1') &&
     doc.includes('& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $pwbInstaller'),
   `${path} 未使用可从现有 PowerShell 正确执行的固定 Latest 命令`);
+  requireText(!doc.includes('raw.githubusercontent.com/porcelaintech/parallel-workshop/main/install-windows.ps1'),
+    `${path} 仍从 main 取引导器，可能与 Latest Release 资产错配`);
   requireText(doc.includes('Remove-Item -LiteralPath $pwbInstaller -Force -ErrorAction SilentlyContinue'),
     `${path} 的固定入口没有清理一次性引导脚本`);
   requireText(!doc.includes('powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$p='),
     `${path} 仍含会被外层 PowerShell 提前展开变量的旧命令`);
 }
+
+const releaseScript = read('scripts/make-release.sh');
+requireText(releaseScript.includes('"install-windows.ps1"') &&
+  releaseScript.includes('SHA256 install-windows.ps1'),
+  '发布脚本没有把与 Release 同步的 Windows 引导器作为 Latest 资产上传');
 
 if (fail.length) {
   console.error(`❌ Windows 安装契约失败：\n- ${fail.join('\n- ')}`);

@@ -33,15 +33,17 @@ bash scripts/qa.sh
 echo "==> 生成 SHA256 清单（写入 Release Notes，供更新器校验）"
 DMG_SHA=$(shasum -a 256 "build/ParallelWorkbench-${VERSION}.dmg" | awk '{print $1}')
 ZIP_SHA=$(shasum -a 256 "build/edge-extension.zip" | awk '{print $1}')
+BOOTSTRAP_SHA=$(shasum -a 256 "install-windows.ps1" | awk '{print $1}')
 NOTES="平行工作台 v${VERSION}（macOS DMG + Edge 扩展）
 
 安装方式：
 - macOS：curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | bash
-- Windows：下载 edge-extension.zip 解压后按 WINDOWS.md 侧载
+- Windows：固定最新版命令见 https://github.com/${REPO}/blob/main/Windows/README.md
 
 校验和（macOS 更新器自动强校验）：
 SHA256 ParallelWorkbench-${VERSION}.dmg ${DMG_SHA}
-SHA256 edge-extension.zip ${ZIP_SHA}"
+SHA256 edge-extension.zip ${ZIP_SHA}
+SHA256 install-windows.ps1 ${BOOTSTRAP_SHA}"
 
 echo "==> 打 tag（要求工作区干净，防止 tag 与构建提交不一致）"
 if [ -n "$(git status --porcelain)" ]; then
@@ -55,6 +57,7 @@ echo "==> 创建 draft Release（确认后转正：gh release edit $TAG --draft=
 gh release create "$TAG" \
   "build/ParallelWorkbench-${VERSION}.dmg" \
   "build/edge-extension.zip" \
+  "install-windows.ps1" \
   --title "平行工作台 ${VERSION}" \
   --notes "$NOTES" \
   --draft --verify-tag -R "$REPO"

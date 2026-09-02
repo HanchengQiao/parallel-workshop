@@ -29,6 +29,13 @@ public enum PaneStatus: Equatable {
         config.websiteDataStore = .default()   // 本应用独立的持久 WebKit 数据存储
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         config.preferences.javaScriptCanOpenWindowsAutomatically = true
+        if adapter.id == "deepseek", !InjectionScripts.modelPreferenceJS.isEmpty {
+            config.userContentController.addUserScript(WKUserScript(
+                source: InjectionScripts.modelPreferenceJS,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            ))
+        }
         self.webView = WKWebView(frame: .zero, configuration: config)
         super.init()
         webView.navigationDelegate = self

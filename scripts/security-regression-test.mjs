@@ -25,6 +25,7 @@ const windowsBootstrap = read('install-windows.ps1');
 const windowsInstallBat = read('Windows/edge-extension/install.bat');
 const windowsInstallPS = read('Windows/edge-extension/install.ps1');
 const windowsLaunchPS = read('Windows/edge-extension/launch.ps1');
+const distribution = JSON.parse(read('Windows/edge-extension/distribution.json'));
 
 const layoutBody = workbench.match(/function layoutPanes\(\)[\s\S]*?\n  }\n\n  function renderPanes/)?.[0] || '';
 const updateAssetSelectorBody = workbench.match(/function selectEdgeUpdateAsset\(assets\) \{\n([\s\S]*?)\n  }/)?.[1] || '';
@@ -108,6 +109,14 @@ requireText(workbench.includes('chrome.runtime.requestUpdateCheck()') &&
   workbench.includes('chrome.runtime.onUpdateAvailable?.addListener') &&
   workbench.includes('chrome.runtime.reload()'),
   'Edge 商店版缺少原生检查、就绪事件或一键重载更新链路');
+requireText(distribution.channel === 'sideload' &&
+  workbench.includes("distributionChannel === 'edge-addons'") &&
+  release.includes('"install-windows.ps1"'),
+  'Edge 分发渠道标记或与 Release 同步的 Windows 引导器缺失');
+requireText(manifest.host_permissions?.includes('https://github.com/*') &&
+  workbench.includes("crypto.subtle.digest('SHA-256'") &&
+  workbench.includes('expectedEdgeAssetSHA256'),
+  'Edge 侧载更新缺少 GitHub 下载权限或 SHA-256 强校验');
 
 if (fail.length) {
   console.error('❌ 安全回归失败：\n- ' + fail.join('\n- '));

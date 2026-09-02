@@ -39,6 +39,8 @@ with zipfile.ZipFile('build/edge-extension.zip') as archive:
     assert 'edge-extension/manifest.json' in names
     assert 'edge-extension/install.bat' in names
     assert 'edge-extension/launch.bat' in names
+    assert 'edge-extension/distribution.json' in names
+    assert 'edge-extension/lib/model-preference.js' in names
 
 with zipfile.ZipFile('build/edge-extension-store.zip') as archive:
     names = archive.namelist()
@@ -46,13 +48,17 @@ with zipfile.ZipFile('build/edge-extension-store.zip') as archive:
     assert not any(name.startswith('edge-extension/') for name in names)
     store_manifest = json.loads(archive.read('manifest.json'))
     assert 'key' not in store_manifest
+    assert not any('github.com' in item or 'githubusercontent.com' in item
+                   for item in store_manifest.get('host_permissions', []))
     files = {name for name in names if not name.endswith('/')}
     expected = {
-        'manifest.json', 'background.js', 'auth-bridge.js', 'intercept.js', 'content.js',
-        'workbench.html', 'workbench.js', 'workbench.css', 'lib/adapters/index.json',
+        'manifest.json', 'distribution.json', 'background.js', 'auth-bridge.js', 'intercept.js', 'content.js',
+        'workbench.html', 'workbench.js', 'workbench.css', 'lib/model-preference.js',
+        'lib/adapters/index.json',
         'icons/16.png', 'icons/32.png', 'icons/48.png', 'icons/128.png'
     }
     assert files == expected, (files - expected, expected - files)
+    assert json.loads(archive.read('distribution.json')) == {'channel': 'edge-addons'}
 PY
 node scripts/security-regression-test.mjs || FAIL=1
 node scripts/background-launch-test.mjs || FAIL=1
@@ -60,6 +66,7 @@ node scripts/palette-regression-test.mjs || FAIL=1
 node scripts/edge-preferences-test.mjs || FAIL=1
 node scripts/edge-update-test.mjs || FAIL=1
 node scripts/doubao-adapter-test.mjs || FAIL=1
+node scripts/deepseek-model-preference-test.mjs || FAIL=1
 node scripts/windows-installer-contract-test.mjs || FAIL=1
 echo "    语法与 JSON 校验通过"
 

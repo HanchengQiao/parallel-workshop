@@ -32,7 +32,8 @@ async function waitFor(predicate, label, timeout = 1500) {
   throw new Error(`等待超时：${label}`);
 }
 
-async function boot({ adapters, stored = ABSENT, width = 640 }) {
+async function boot({ adapters, stored = ABSENT, width = 640, storageReadError = false,
+  expectInitialWrite = true }) {
   const dom = new JSDOM(html, {
     runScripts: 'outside-only',
     pretendToBeVisual: true,
@@ -60,9 +61,12 @@ async function boot({ adapters, stored = ABSENT, width = 640 }) {
     },
     storage: {
       local: {
-        get: async key => Object.prototype.hasOwnProperty.call(state, key)
-          ? { [key]: clone(state[key]) }
-          : {},
+        get: async key => {
+          if (storageReadError) throw new Error('simulated storage read failure');
+          return Object.prototype.hasOwnProperty.call(state, key)
+            ? { [key]: clone(state[key]) }
+            : {};
+        },
         set: async update => {
           Object.assign(state, clone(update));
           writes.push(clone(update[KEY]));
@@ -78,7 +82,10 @@ async function boot({ adapters, stored = ABSENT, width = 640 }) {
   };
 
   window.eval(workbenchSource);
-  await waitFor(() => writes.length > 0, '启动偏好规范化写入');
+  await waitFor(
+    () => expectInitialWrite ? writes.length > 0 : window.document.querySelectorAll('#checks input').length > 0,
+    expectInitialWrite ? '启动偏好规范化写入' : '读取失败后仍完成工作台初始化'
+  );
   return {
     dom,
     window,
@@ -191,6 +198,19 @@ if (checkedIDs(empty.window).length !== 0 || empty.window.document.querySelector
   throw new Error('用户主动取消全部平台的偏好没有被保留');
 }
 empty.dom.window.close();
+
+// A transient chrome.storage read failure must not be mistaken for first use and
+// canonicalize all-enabled defaults over the user's existing record.
+const readFailure = await boot({
+  adapters: initialAdapters,
+  storageReadError: true,
+  expectInitialWrite: false
+});
+await delay(30);
+if (readFailure.writes.length !== 0 || checkedIDs(readFailure.window).join(',') !== 'a,b,c') {
+  throw new Error('偏好读取失败时覆盖了旧记录，或工作台未安全回退到内存默认值');
+}
+readFailure.dom.window.close();
 
 if (!/if \(!enabled\.has\(id\)\) continue;/.test(workbenchSource)) {
   throw new Error('发送链路缺少 enabled 防线');

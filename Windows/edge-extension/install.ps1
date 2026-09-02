@@ -45,8 +45,8 @@ function Get-EdgePath {
 
 function Assert-ExtensionSource([string]$Path) {
     foreach ($required in @(
-        'manifest.json', 'background.js', 'content.js', 'workbench.html', 'workbench.js',
-        'workbench.css', 'lib\adapters\index.json', 'install.ps1', 'launch.ps1'
+        'manifest.json', 'distribution.json', 'background.js', 'content.js', 'workbench.html', 'workbench.js',
+        'workbench.css', 'lib\model-preference.js', 'lib\adapters\index.json', 'install.ps1', 'launch.ps1'
     )) {
         if (-not (Test-Path -LiteralPath (Join-Path $Path $required))) {
             throw "安装源缺少 $required"

@@ -85,13 +85,19 @@ STORE_STAGE="$(mktemp -d /tmp/pwb-edge-store.XXXXXX)"
 STORE_ZIP="$(pwd)/build/edge-extension-store.zip"
 trap 'rm -rf "$STORE_STAGE"' EXIT
 cp Windows/edge-extension/{background.js,auth-bridge.js,intercept.js,content.js,workbench.html,workbench.js,workbench.css} "$STORE_STAGE/"
+printf '%s\n' '{"channel":"edge-addons"}' > "$STORE_STAGE/distribution.json"
 mkdir -p "$STORE_STAGE/icons" "$STORE_STAGE/lib/adapters"
 cp Windows/edge-extension/icons/{16.png,32.png,48.png,128.png} "$STORE_STAGE/icons/"
 cp Windows/edge-extension/lib/adapters/index.json "$STORE_STAGE/lib/adapters/"
+cp Windows/edge-extension/lib/model-preference.js "$STORE_STAGE/lib/"
 python3 - "$STORE_STAGE/manifest.json" <<'PY'
 import json, sys
 source = json.load(open('Windows/edge-extension/manifest.json'))
 source.pop('key', None)
+source['host_permissions'] = [
+    item for item in source.get('host_permissions', [])
+    if 'github.com' not in item and 'githubusercontent.com' not in item
+]
 with open(sys.argv[1], 'w') as handle:
     json.dump(source, handle, ensure_ascii=False, indent=2)
     handle.write('\n')

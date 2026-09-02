@@ -2,6 +2,10 @@
 // （超出分页导航）、发送给全部勾选平台（不可见的窗格以离屏方式保持活跃）、错误可见化。
 (async () => {
   const adapters = await fetch(chrome.runtime.getURL('lib/adapters/index.json')).then(r => r.json());
+  const distributionChannel = await fetch(chrome.runtime.getURL('distribution.json'))
+    .then(response => response.ok ? response.json() : {})
+    .then(value => value?.channel === 'edge-addons' ? 'edge-addons' : 'sideload')
+    .catch(() => 'sideload');
   const MAX_VISIBLE = 3;
 
   // 平台主域名映射（WB_ATTACH CDP 拖放按 host 定位 frame）
@@ -91,11 +95,14 @@
   }
 
   async function restorePreferences() {
-    let stored = {};
+    let stored;
     try {
       stored = await chrome.storage.local.get(PREFERENCES_KEY);
     } catch {
-      // Storage failure is non-fatal; the first-use defaults keep the workbench usable.
+      // A transient read failure is not the same as "no saved value". Keep the
+      // workbench usable with in-memory defaults, but never overwrite an older
+      // preference record that we could not read.
+      return false;
     }
     const exists = Object.prototype.hasOwnProperty.call(stored || {}, PREFERENCES_KEY);
     const prefs = normalizePreferences(stored?.[PREFERENCES_KEY], exists);
@@ -106,6 +113,7 @@
     const list = enabledList();
     const anchorIndex = list.findIndex(a => a.id === prefs.pageAnchorAdapterID);
     windowStart = Math.max(0, anchorIndex);
+    return true;
   }
 
   function currentPageAnchorAdapterID() {
@@ -878,7 +886,7 @@
   // —— 版本更新：商店版交给 Edge 原生更新；侧载版下载精确用户包并给出最短重载路径。——
   const UPDATE_REPO = 'porcelaintech/parallel-workshop';
   const bannerEl = document.getElementById('update-banner');
-  const isStoreBuild = !chrome.runtime.getManifest().key;
+  const isStoreBuild = distributionChannel === 'edge-addons';
   let storeUpdateRequested = false;
   let storeReloadScheduled = false;
 
@@ -899,6 +907,21 @@
     return Array.isArray(assets)
       ? assets.find(asset => asset && asset.name === expectedName)
       : undefined;
+  }
+
+  function expectedEdgeAssetSHA256(release, asset) {
+    const direct = String(asset?.digest || '').replace(/^sha256:/i, '').toLowerCase();
+    if (/^[0-9a-f]{64}$/.test(direct)) return direct;
+    for (const line of String(release?.body || '').split(/\r?\n/)) {
+      const match = line.match(/^SHA256\s+edge-extension\.zip\s+([0-9a-f]{64})\s*$/i);
+      if (match) return match[1].toLowerCase();
+    }
+    return null;
+  }
+
+  async function sha256Hex(data) {
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
   }
 
   function reloadForStoreUpdate(version) {
@@ -958,14 +981,20 @@
           const zrel = await (await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`)).json();
           const asset = selectEdgeUpdateAsset(zrel.assets);
           if (!asset) throw new Error('Release 缺少 edge-extension.zip');
+          const expectedSHA256 = expectedEdgeAssetSHA256(zrel, asset);
+          if (!expectedSHA256) throw new Error('Release 缺少有效 SHA-256');
+          const response = await fetch(asset.browser_download_url);
+          if (!response.ok) throw new Error('更新包下载失败');
+          const blob = await response.blob();
+          const actualSHA256 = await sha256Hex(await blob.arrayBuffer());
+          if (actualSHA256 !== expectedSHA256) throw new Error('更新包 SHA-256 不匹配');
           const a = document.createElement('a');
-          // GitHub's release-asset redirects do not consistently expose CORS headers.
-          // Let Edge's native download navigation follow them instead of fetching the
-          // archive into the extension origin first.
-          a.href = asset.browser_download_url;
+          const objectURL = URL.createObjectURL(blob);
+          a.href = objectURL;
           a.download = asset.name;
           a.click();
-          bannerEl.innerHTML = `已下载 ${asset.name} 到「下载」文件夹：①解压并双击 install.bat ②在 edge://extensions 点「重新加载」`;
+          setTimeout(() => URL.revokeObjectURL(objectURL), 60000);
+          bannerEl.innerHTML = `${asset.name} 已下载并通过 SHA-256 校验：①解压并双击 install.bat ②在 edge://extensions 点「重新加载」`;
         } catch (e) {
           bannerEl.innerHTML = '下载失败，请稍后重试或到 GitHub Releases 手动下载';
         }
@@ -977,11 +1006,15 @@
   const startupOverlay = document.getElementById('startup-overlay');
   const startupText = document.getElementById('startup-text');
   try {
-    await Promise.all([registerWorkbenchChannel(), restorePreferences()]);
+    const [, preferencesRestored] = await Promise.all([registerWorkbenchChannel(), restorePreferences()]);
     renderChecks();
     renderPanes();
-    preferencesReady = true;
-    persistPreferences(); // Canonicalize first-use, legacy-corrupt and unknown-adapter data.
+    preferencesReady = preferencesRestored;
+    if (preferencesReady) {
+      persistPreferences(); // Canonicalize first-use, legacy-corrupt and unknown-adapter data.
+    } else {
+      console.warn('偏好存储读取失败：本次运行不会覆盖原记录');
+    }
     setInterval(probeAll, 8000);
     setTimeout(probeAll, 3000);
     setTimeout(checkUpdate, 5000);

@@ -18,6 +18,7 @@
 - **不调 API、无付费依赖**：嵌入各平台官方网页客户端
 - **登录态持久（应用内）**：macOS 版使用应用自带的 WebKit 持久存储（`~/Library/WebKit/ParallelWorkbench`），登录请在工作台窗格内完成（登录围栏保证不出框），每个平台登录一次后持久；Windows/Edge 版与浏览器共享登录态
 - **登录态备份/恢复**：`--backup-auth` / `--restore-auth`，防应用存储损坏/系统重装导致全部登录失效（已实战验证）
+- **使用习惯持久化**：双端记住平台勾选、分页位置和逐平台缩放；DeepSeek 额外按稳定 `model_type` 记住上次模型，并在新会话重置后恢复
 - **脱离谷歌生态**：macOS 原生 SwiftUI 应用；Windows 侧后续走 Edge 扩展（微软生态），共享本仓库 adapter/injection 核心
 - **不提供代理服务**：国际平台走用户系统里已有的代理环境
 - **风险管控**：不自动化任何登录/验证流程（人工在 pane 内完成）；注入只做「定位输入框→设值→发送」，不轮询、不自动重试
@@ -33,7 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/porcelaintech/parallel-workshop/mai
 
 ```powershell
 # Windows：固定命令自动获取最新稳定版
-[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12; $pwbInstaller = Join-Path $env:TEMP ('ParallelWorkbench-install-' + [Guid]::NewGuid().ToString('N') + '.ps1'); try { Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/porcelaintech/parallel-workshop/main/install-windows.ps1' -OutFile $pwbInstaller -ErrorAction Stop; & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "平行工作台安装失败（退出码 $LASTEXITCODE）" } } finally { Remove-Item -LiteralPath $pwbInstaller -Force -ErrorAction SilentlyContinue }
+$pwbInstaller = Join-Path $env:TEMP ('ParallelWorkbench-install-' + [Guid]::NewGuid().ToString('N') + '.ps1'); try { & curl.exe --fail --location --silent --show-error --retry 3 --retry-max-time 90 --connect-timeout 10 --max-time 60 'https://github.com/porcelaintech/parallel-workshop/releases/latest/download/install-windows.ps1' --output $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "安装器下载失败（curl 退出码 $LASTEXITCODE）" }; & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "平行工作台安装失败（退出码 $LASTEXITCODE）" } } finally { Remove-Item -LiteralPath $pwbInstaller -Force -ErrorAction SilentlyContinue }
 ```
 
 > 未签名开源分发：install.sh 校验 GitHub 资产摘要后安装并移除隔离属性；正式对外分发仍建议签名公证。npm 包和 Homebrew tap 尚未发布，因此不再宣传对应命令。
@@ -41,7 +42,7 @@ curl -fsSL https://raw.githubusercontent.com/porcelaintech/parallel-workshop/mai
 ## 运行（开发者）
 
 ```sh
-cd parallel-workbench
+cd parallel-workshop
 swift build && open -n .build/arm64-apple-macosx/debug/ParallelWorkbench
 # 或 swift run ParallelWorkbench
 ```
@@ -131,8 +132,8 @@ bash scripts/package-app.sh   # 生成 build/ParallelWorkbench.app（未签名�
 ## 版本更新
 
 - **macOS**：启动时自动检查 GitHub Releases 最新版，顶栏出现「更新到 vX」按钮，一键下载 → 覆盖安装 → 去隔离 → 自动重启（适配开源未签名分发；仓库可通过环境变量 `PWB_REPO` 配置）
-- **Edge 扩展**：工作台页定期检查 GitHub Releases，出现「🆕 新版本」横幅，一键下载 zip 并逐步引导（双击 install.bat → 扩展页点「重新加载」；侧载扩展受平台限制无法全自动重载）
-- **install.sh**：不再写死版本，自动拉取最新 Release（下载即最新）
+- **Edge 扩展**：Edge Add-ons 渠道使用浏览器原生检查、安装与单次重载；GitHub 侧载渠道精确下载 `edge-extension.zip` 并强校验 SHA-256，再给出最短重载步骤
+- **固定安装入口**：macOS `install.sh` 与 Windows `install-windows.ps1` 都从 Latest 稳定 Release 获取版本，不再把版本号写进用户命令
 
 ## 已知限制与后续
 
