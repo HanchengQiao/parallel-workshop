@@ -96,13 +96,18 @@
 
   async function restorePreferences() {
     let stored;
-    try {
-      stored = await chrome.storage.local.get(PREFERENCES_KEY);
-    } catch {
-      // A transient read failure is not the same as "no saved value". Keep the
-      // workbench usable with in-memory defaults, but never overwrite an older
-      // preference record that we could not read.
-      return false;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        stored = await chrome.storage.local.get(PREFERENCES_KEY);
+        break;
+      } catch {
+        if (attempt === 3) {
+          // A persistent read failure is not the same as "no saved value". Keep
+          // in-memory defaults usable, but never overwrite an unread old record.
+          return false;
+        }
+        await new Promise(resolve => setTimeout(resolve, attempt * 100));
+      }
     }
     const exists = Object.prototype.hasOwnProperty.call(stored || {}, PREFERENCES_KEY);
     const prefs = normalizePreferences(stored?.[PREFERENCES_KEY], exists);
@@ -909,6 +914,24 @@
       : undefined;
   }
 
+  async function fetchWithRetry(url, { attempts = 3, timeoutMs = 30000 } = {}) {
+    let lastError;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response;
+      } catch (error) {
+        lastError = error;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    throw lastError || new Error('网络请求失败');
+  }
+
   function expectedEdgeAssetSHA256(release, asset) {
     const direct = String(asset?.digest || '').replace(/^sha256:/i, '').toLowerCase();
     if (/^[0-9a-f]{64}$/.test(direct)) return direct;
@@ -963,8 +986,10 @@
 
   async function checkUpdate() {
     try {
-      const resp = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`);
-      if (!resp.ok) return;
+      const resp = await fetchWithRetry(
+        `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`,
+        { attempts: 2, timeoutMs: 15000 }
+      );
       const rel = await resp.json();
       const latest = String(rel.tag_name || '').replace(/^v/, '');
       const current = chrome.runtime.getManifest().version;
@@ -978,13 +1003,15 @@
         }
         bannerEl.innerHTML = '正在下载新版本…';
         try {
-          const zrel = await (await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`)).json();
+          const zrel = await (await fetchWithRetry(
+            `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`,
+            { attempts: 3, timeoutMs: 15000 }
+          )).json();
           const asset = selectEdgeUpdateAsset(zrel.assets);
           if (!asset) throw new Error('Release 缺少 edge-extension.zip');
           const expectedSHA256 = expectedEdgeAssetSHA256(zrel, asset);
           if (!expectedSHA256) throw new Error('Release 缺少有效 SHA-256');
-          const response = await fetch(asset.browser_download_url);
-          if (!response.ok) throw new Error('更新包下载失败');
+          const response = await fetchWithRetry(asset.browser_download_url, { attempts: 3, timeoutMs: 60000 });
           const blob = await response.blob();
           const actualSHA256 = await sha256Hex(await blob.arrayBuffer());
           if (actualSHA256 !== expectedSHA256) throw new Error('更新包 SHA-256 不匹配');

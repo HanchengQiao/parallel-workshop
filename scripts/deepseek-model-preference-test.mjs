@@ -75,6 +75,7 @@ if (!modelScriptEntry || modelScriptEntry.all_frames !== true || modelScriptEntr
 }
 const paneController = readFileSync(base + 'Sources/WorkbenchCore/PaneController.swift', 'utf8');
 if (!source.includes('event.isTrusted') ||
+    !source.includes('element?.closest(ITEM_SELECTOR)') ||
     !paneController.includes('adapter.id == "deepseek"') ||
     !paneController.includes('InjectionScripts.modelPreferenceJS')) {
   throw new Error('模型偏好桥缺少可信用户选择约束或 macOS DeepSeek 限域接线');

@@ -31,7 +31,8 @@ await evaluate(`(() => {
   if (old) old.remove();
   const group = document.createElement('div');
   group.id = 'pwb-model-fixture';
-  group.setAttribute('role', 'radiogroup');
+  // Deliberately omit the optional radiogroup wrapper: trusted choices are
+  // anchored to each semantic radio item itself.
   Object.assign(group.style, { position:'fixed', left:'20px', top:'20px', zIndex:'2147483647', display:'flex' });
   for (const [type, checked] of [['default', true], ['expert', false]]) {
     const item = document.createElement('button');

@@ -115,7 +115,8 @@ requireText(distribution.channel === 'sideload' &&
   'Edge 分发渠道标记或与 Release 同步的 Windows 引导器缺失');
 requireText(manifest.host_permissions?.includes('https://github.com/*') &&
   workbench.includes("crypto.subtle.digest('SHA-256'") &&
-  workbench.includes('expectedEdgeAssetSHA256'),
+  workbench.includes('expectedEdgeAssetSHA256') && workbench.includes('new AbortController()') &&
+  workbench.includes('timeoutMs: 60000'),
   'Edge 侧载更新缺少 GitHub 下载权限或 SHA-256 强校验');
 
 if (fail.length) {

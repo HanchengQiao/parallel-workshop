@@ -45,6 +45,7 @@
 
   function withinModelSwitcher(target) {
     const element = target instanceof Element ? target : null;
+    if (element?.closest(ITEM_SELECTOR)) return true;
     const group = element?.closest('[role="radiogroup"]');
     return !!group?.querySelector(ITEM_SELECTOR);
   }

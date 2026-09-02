@@ -23,7 +23,7 @@ function makeRelease(assets) {
   return { tag_name: 'v1.1.0', assets };
 }
 
-async function boot({ storeBuild, release, requestUpdateCheck }) {
+async function boot({ storeBuild, release, requestUpdateCheck, assetFetchFailures = 0 }) {
   const dom = new JSDOM(html, {
     runScripts: 'outside-only',
     pretendToBeVisual: true,
@@ -79,6 +79,10 @@ async function boot({ storeBuild, release, requestUpdateCheck }) {
     }
     const asset = release.assets.find(item => item.browser_download_url === url);
     if (asset) {
+      if (assetFetchFailures > 0) {
+        assetFetchFailures -= 1;
+        throw new Error('simulated transient asset failure');
+      }
       return {
         ok: true,
         blob: async () => ({ arrayBuffer: async () => new TextEncoder().encode(asset.name).buffer })
@@ -215,13 +219,15 @@ const sideLoaded = await boot({
     { name: 'edge-extension-store.zip', browser_download_url: storeAssetURL },
     { name: 'source.zip', browser_download_url: otherAssetURL },
     { name: 'edge-extension.zip', browser_download_url: userAssetURL, digest: `sha256:${VALID_DIGEST}` }
-  ])
+  ]),
+  assetFetchFailures: 2
 });
 (await exposeUpdateBanner(sideLoaded, '下载更新')).click();
 await waitFor(() => sideLoaded.downloads.length === 1, '侧载版下载用户包');
 if (sideLoaded.downloads[0].download !== 'edge-extension.zip' ||
     !sideLoaded.downloads[0].href.startsWith('blob:edge-update-test-') ||
-    !sideLoaded.fetchedURLs.includes(userAssetURL) || sideLoaded.fetchedURLs.includes(storeAssetURL) ||
+    sideLoaded.fetchedURLs.filter(url => url === userAssetURL).length !== 3 ||
+    sideLoaded.fetchedURLs.includes(storeAssetURL) ||
     sideLoaded.fetchedURLs.includes(otherAssetURL)) {
   throw new Error('侧载版没有精确选择 edge-extension.zip');
 }

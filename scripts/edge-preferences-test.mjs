@@ -32,7 +32,7 @@ async function waitFor(predicate, label, timeout = 1500) {
   throw new Error(`等待超时：${label}`);
 }
 
-async function boot({ adapters, stored = ABSENT, width = 640, storageReadError = false,
+async function boot({ adapters, stored = ABSENT, width = 640, storageReadFailures = 0,
   expectInitialWrite = true }) {
   const dom = new JSDOM(html, {
     runScripts: 'outside-only',
@@ -44,6 +44,7 @@ async function boot({ adapters, stored = ABSENT, width = 640, storageReadError =
   if (!window.crypto.randomUUID) window.crypto.randomUUID = () => '00000000-0000-4000-8000-000000000000';
 
   const writes = [];
+  let storageReads = 0;
   const state = stored === ABSENT ? {} : { [KEY]: clone(stored) };
   window.fetch = async () => ({ ok: true, json: async () => clone(adapters) });
   window.setInterval = () => 0;
@@ -62,7 +63,8 @@ async function boot({ adapters, stored = ABSENT, width = 640, storageReadError =
     storage: {
       local: {
         get: async key => {
-          if (storageReadError) throw new Error('simulated storage read failure');
+          storageReads += 1;
+          if (storageReads <= storageReadFailures) throw new Error('simulated storage read failure');
           return Object.prototype.hasOwnProperty.call(state, key)
             ? { [key]: clone(state[key]) }
             : {};
@@ -90,6 +92,7 @@ async function boot({ adapters, stored = ABSENT, width = 640, storageReadError =
     dom,
     window,
     writes,
+    get storageReads() { return storageReads; },
     latest: () => writes.at(-1),
     waitForWrite: async predicate => waitFor(() => predicate(writes.at(-1)), '偏好写入')
   };
@@ -203,7 +206,7 @@ empty.dom.window.close();
 // canonicalize all-enabled defaults over the user's existing record.
 const readFailure = await boot({
   adapters: initialAdapters,
-  storageReadError: true,
+  storageReadFailures: 99,
   expectInitialWrite: false
 });
 await delay(30);
@@ -211,6 +214,16 @@ if (readFailure.writes.length !== 0 || checkedIDs(readFailure.window).join(',') 
   throw new Error('偏好读取失败时覆盖了旧记录，或工作台未安全回退到内存默认值');
 }
 readFailure.dom.window.close();
+
+const transientReadFailure = await boot({
+  adapters: initialAdapters,
+  stored: { version: 1, enabledAdapterIDs: ['b'], pageAnchorAdapterID: 'b', zoomByAdapterID: {} },
+  storageReadFailures: 2
+});
+if (transientReadFailure.storageReads !== 3 || checkedIDs(transientReadFailure.window).join(',') !== 'b') {
+  throw new Error('偏好存储短暂失败后没有有限重试并恢复旧记录');
+}
+transientReadFailure.dom.window.close();
 
 if (!/if \(!enabled\.has\(id\)\) continue;/.test(workbenchSource)) {
   throw new Error('发送链路缺少 enabled 防线');
