@@ -40,6 +40,7 @@ jobs:
           with zipfile.ZipFile('build/edge-extension-store.zip') as archive:
               store_names = archive.namelist()
               store_manifest = json.loads(archive.read('manifest.json'))
+              store_distribution = json.loads(archive.read('distribution.json'))
           assert 'manifest.json' in store_names
           assert not any(name.startswith('edge-extension/') for name in store_names)
           assert 'key' not in store_manifest
@@ -53,7 +54,7 @@ jobs:
               'icons/16.png', 'icons/32.png', 'icons/48.png', 'icons/128.png'
           }
           assert store_files == expected
-          assert json.loads(archive.read('distribution.json')) == {'channel': 'edge-addons'}
+          assert store_distribution == {'channel': 'edge-addons'}
           PY
 
   windows-installer:
