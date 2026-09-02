@@ -133,5 +133,7 @@ jobs:
           $script = (Resolve-Path '.\install-windows.ps1').Path
           $command = "& '$($script.Replace("'", "''"))' -ArchivePath '$($badZip.Replace("'", "''"))' -VerifyOnly"
           $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
-          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded
-          if ($LASTEXITCODE -eq 0) { throw 'malformed archive incorrectly returned exit code 0' }
+          $process = Start-Process -FilePath powershell.exe -ArgumentList @(
+            '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded
+          ) -Wait -PassThru -NoNewWindow
+          if ($process.ExitCode -eq 0) { throw 'malformed archive incorrectly returned exit code 0' }
