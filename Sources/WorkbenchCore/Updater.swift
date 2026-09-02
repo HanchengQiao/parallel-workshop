@@ -25,6 +25,13 @@ public enum Updater {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0"
     }
 
+    /// 默认更新正式安装位置；PWB_INSTALL_DEST 仅供隔离集成测试使用。
+    public static var installDestination: String {
+        let override = ProcessInfo.processInfo.environment["PWB_INSTALL_DEST"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (override?.isEmpty == false ? override! : "/Applications/ParallelWorkbench.app")
+    }
+
     /// 拉取 GitHub Releases 最新版信息
     public static func fetchLatest() async -> Release? {
         let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!
@@ -76,6 +83,16 @@ public enum Updater {
         let digest = value.lowercased()
         guard digest.count == 64, digest.allSatisfy({ $0.isHexDigit }) else { return nil }
         return digest
+    }
+
+    static func versionFromDMGAssetName(_ name: String) -> String? {
+        let prefix = "ParallelWorkbench-"
+        let suffix = ".dmg"
+        guard name.hasPrefix(prefix), name.hasSuffix(suffix) else { return nil }
+        let version = String(name.dropFirst(prefix.count).dropLast(suffix.count))
+        let parts = version.split(separator: ".")
+        guard parts.count == 3, parts.allSatisfy({ Int($0) != nil }) else { return nil }
+        return version
     }
 
     static func sha256Hex(of data: Data) -> String {
@@ -132,12 +149,28 @@ public enum Updater {
             progress("校验失败：安装包 Bundle ID 不符，已中止")
             return false
         }
+        guard let expectedVersion = versionFromDMGAssetName(assetName),
+              let newVersion = newInfo["CFBundleShortVersionString"] as? String else {
+            progress("校验失败：无法确认安装包版本，已中止")
+            return false
+        }
+        if newVersion != expectedVersion {
+            progress("校验失败：安装包版本与资产名不符，已中止")
+            return false
+        }
 
         // 4) 原子替换：先复制到同卷临时名（保留复制失败时旧版完好）
-        let dest = "/Applications/ParallelWorkbench.app"
+        let dest = installDestination
+        let parent = (dest as NSString).deletingLastPathComponent
+        let appName = (dest as NSString).lastPathComponent
+        guard !parent.isEmpty,
+              run("/bin/mkdir", ["-p", parent]) != nil else {
+            progress("安装失败：无法准备目标目录")
+            return false
+        }
         let transaction = UUID().uuidString
-        let staged = "/Applications/.ParallelWorkbench.app.new-\(transaction)"
-        let backup = "/Applications/.ParallelWorkbench.app.old-\(transaction)"
+        let staged = parent + "/.\(appName).new-\(transaction)"
+        let backup = parent + "/.\(appName).old-\(transaction)"
         let hadOld = FileManager.default.fileExists(atPath: dest)
 
         _ = run("/bin/rm", ["-rf", staged])

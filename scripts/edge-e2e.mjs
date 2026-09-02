@@ -70,9 +70,40 @@ if ([ui.bodyWidth, ui.topbarWidth, ui.controlsWidth, ui.panesWidth].some(width =
   process.exit(1);
 }
 
+// 1.0.1 尺寸矩阵：覆盖窄窗、中窗和宽窗，锁定 1/2/3 窗格与零横向空白。
+const responsiveResults = [];
+for (const [width, expected] of [[640, 1], [900, 2], [1440, 3]]) {
+  await cdpCommand(page.webSocketDebuggerUrl, 'Emulation.setDeviceMetricsOverride', {
+    width,
+    height: 900,
+    deviceScaleFactor: 1,
+    mobile: false
+  });
+  await sleep(200);
+  const result = JSON.parse(await cdp(page.webSocketDebuggerUrl, `JSON.stringify({
+    width: document.documentElement.clientWidth,
+    bodyWidth: document.body.getBoundingClientRect().width,
+    scrollWidth: document.documentElement.scrollWidth,
+    visiblePanes: document.querySelectorAll('.pane:not(.offscreen)').length,
+    topbarWidth: document.getElementById('topbar').getBoundingClientRect().width,
+    controlsWidth: document.getElementById('controls').getBoundingClientRect().width,
+    panesWidth: document.getElementById('panes').getBoundingClientRect().width
+  })`));
+  responsiveResults.push(result);
+  const shellWidths = [result.bodyWidth, result.topbarWidth, result.controlsWidth, result.panesWidth];
+  if (result.width !== width || result.visiblePanes !== expected ||
+      shellWidths.some(value => Math.abs(value - width) > 1) || result.scrollWidth > width + 1) {
+    console.log(`❌ ${width}px 响应式布局错误：${JSON.stringify(result)}`);
+    process.exit(1);
+  }
+}
+await cdpCommand(page.webSocketDebuggerUrl, 'Emulation.clearDeviceMetricsOverride');
+await sleep(200);
+console.log('响应式尺寸矩阵:', JSON.stringify(responsiveResults));
+
 // 1.1 翻页不得重建任何 iframe 浏览上下文。
 const preserved = JSON.parse(await cdp(page.webSocketDebuggerUrl, `(async()=>{
-  const ids=['chatgpt','deepseek','kimi','tongyi','yiyan'];
+  const ids=['chatgpt','deepseek','kimi','tongyi','yiyan','doubao'];
   const refs=Object.fromEntries(ids.map(id=>[id,document.getElementById('frame-'+id).contentWindow]));
   document.getElementById('page-right').click();
   await new Promise(r=>setTimeout(r,150));

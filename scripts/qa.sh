@@ -31,7 +31,7 @@ for f in Windows/edge-extension/manifest.json Windows/edge-extension/lib/adapter
   python3 -m json.tool "$f" > /dev/null || FAIL=1
 done
 python3 - <<'PY' || FAIL=1
-import zipfile
+import json, zipfile
 
 with zipfile.ZipFile('build/edge-extension.zip') as archive:
     names = archive.namelist()
@@ -44,12 +44,23 @@ with zipfile.ZipFile('build/edge-extension-store.zip') as archive:
     names = archive.namelist()
     assert 'manifest.json' in names
     assert not any(name.startswith('edge-extension/') for name in names)
-    for forbidden in ('install.bat', 'launch.bat', 'README.md', 'WINDOWS.md', 'STORE_LISTING.md'):
-        assert forbidden not in names
+    store_manifest = json.loads(archive.read('manifest.json'))
+    assert 'key' not in store_manifest
+    files = {name for name in names if not name.endswith('/')}
+    expected = {
+        'manifest.json', 'background.js', 'auth-bridge.js', 'intercept.js', 'content.js',
+        'workbench.html', 'workbench.js', 'workbench.css', 'lib/adapters/index.json',
+        'icons/16.png', 'icons/32.png', 'icons/48.png', 'icons/128.png'
+    }
+    assert files == expected, (files - expected, expected - files)
 PY
 node scripts/security-regression-test.mjs || FAIL=1
 node scripts/background-launch-test.mjs || FAIL=1
 node scripts/palette-regression-test.mjs || FAIL=1
+node scripts/edge-preferences-test.mjs || FAIL=1
+node scripts/edge-update-test.mjs || FAIL=1
+node scripts/doubao-adapter-test.mjs || FAIL=1
+node scripts/windows-installer-contract-test.mjs || FAIL=1
 echo "    语法与 JSON 校验通过"
 
 echo "==> 4/4 扩展胶水层 jsdom 冒烟测试"

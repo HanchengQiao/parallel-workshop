@@ -20,6 +20,10 @@
   const questionEl = document.getElementById('question');
   const sendEl = document.getElementById('send');
 
+  const PREFERENCES_KEY = 'parallelWorkbench.preferences.v1';
+  const PREFERENCES_VERSION = 1;
+  const adapterIDs = adapters.map(a => a.id);
+  const knownAdapterIDs = new Set(adapterIDs);
   const enabled = new Set(adapters.map(a => a.id));
   const attachBtnEl = document.getElementById('attach-btn');
   const attachChipsEl = document.getElementById('attach-chips');
@@ -32,13 +36,118 @@
   const authChannelToken = crypto.randomUUID();
   let workbenchTab = null;
   let sending = false;
+  let preferencesReady = false;
+  let preferenceSaveChain = Promise.resolve();
 
-  function applyZoom(id, z) {
-    zooms[id] = Math.min(1.3, Math.max(0.6, z));
+  function defaultPreferences() {
+    return {
+      version: PREFERENCES_VERSION,
+      enabledAdapterIDs: adapterIDs.slice(),
+      pageAnchorAdapterID: adapterIDs[0] || null,
+      zoomByAdapterID: {}
+    };
+  }
+
+  function isPlainRecord(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  // Local preferences are untrusted input: extension downgrades, interrupted writes and
+  // hand-edited profiles must never break startup. Unknown adapters and invalid zooms are
+  // discarded instead of being guessed or clamped into a seemingly valid preference.
+  function normalizePreferences(value, exists) {
+    if (!exists) return defaultPreferences();
+    if (!isPlainRecord(value) || value.version !== PREFERENCES_VERSION ||
+        !Array.isArray(value.enabledAdapterIDs) || !isPlainRecord(value.zoomByAdapterID) ||
+        !(value.pageAnchorAdapterID === null || typeof value.pageAnchorAdapterID === 'string')) {
+      return defaultPreferences();
+    }
+
+    const enabledAdapterIDs = [];
+    const seen = new Set();
+    for (const id of value.enabledAdapterIDs) {
+      if (typeof id !== 'string' || !knownAdapterIDs.has(id) || seen.has(id)) continue;
+      seen.add(id);
+      enabledAdapterIDs.push(id);
+    }
+
+    const zoomByAdapterID = {};
+    for (const [id, zoom] of Object.entries(value.zoomByAdapterID)) {
+      if (!knownAdapterIDs.has(id) || typeof zoom !== 'number' || !Number.isFinite(zoom) ||
+          zoom < 0.6 || zoom > 1.3) continue;
+      zoomByAdapterID[id] = zoom;
+    }
+
+    const enabledSet = new Set(enabledAdapterIDs);
+    const pageAnchorAdapterID = enabledSet.has(value.pageAnchorAdapterID)
+      ? value.pageAnchorAdapterID
+      : (enabledAdapterIDs[0] || null);
+    return {
+      version: PREFERENCES_VERSION,
+      enabledAdapterIDs,
+      pageAnchorAdapterID,
+      zoomByAdapterID
+    };
+  }
+
+  async function restorePreferences() {
+    let stored = {};
+    try {
+      stored = await chrome.storage.local.get(PREFERENCES_KEY);
+    } catch {
+      // Storage failure is non-fatal; the first-use defaults keep the workbench usable.
+    }
+    const exists = Object.prototype.hasOwnProperty.call(stored || {}, PREFERENCES_KEY);
+    const prefs = normalizePreferences(stored?.[PREFERENCES_KEY], exists);
+    enabled.clear();
+    for (const id of prefs.enabledAdapterIDs) enabled.add(id);
+    for (const id of Object.keys(zooms)) delete zooms[id];
+    Object.assign(zooms, prefs.zoomByAdapterID);
+    const list = enabledList();
+    const anchorIndex = list.findIndex(a => a.id === prefs.pageAnchorAdapterID);
+    windowStart = Math.max(0, anchorIndex);
+  }
+
+  function currentPageAnchorAdapterID() {
+    const list = enabledList();
+    if (list.length === 0) return null;
+    const start = Math.min(Math.max(windowStart, 0), Math.max(list.length - visibleCapacity(), 0));
+    return list[start]?.id || list[0].id;
+  }
+
+  function preferenceSnapshot() {
+    const zoomByAdapterID = {};
+    for (const id of adapterIDs) {
+      const zoom = zooms[id];
+      if (typeof zoom === 'number' && Number.isFinite(zoom) && zoom >= 0.6 && zoom <= 1.3) {
+        zoomByAdapterID[id] = zoom;
+      }
+    }
+    return {
+      version: PREFERENCES_VERSION,
+      enabledAdapterIDs: adapterIDs.filter(id => enabled.has(id)),
+      pageAnchorAdapterID: currentPageAnchorAdapterID(),
+      zoomByAdapterID
+    };
+  }
+
+  function persistPreferences() {
+    if (!preferencesReady) return Promise.resolve();
+    const snapshot = preferenceSnapshot();
+    const save = preferenceSaveChain.then(() => chrome.storage.local.set({ [PREFERENCES_KEY]: snapshot }));
+    // Serialize writes so a slower earlier write can never overwrite a newer click.
+    preferenceSaveChain = save.catch(() => {});
+    return preferenceSaveChain;
+  }
+
+  function applyZoom(id, z, save = true) {
+    if (!knownAdapterIDs.has(id) || typeof z !== 'number' || !Number.isFinite(z)) return;
+    zooms[id] = Math.round(Math.min(1.3, Math.max(0.6, z)) * 1000) / 1000;
     const f = frames[id]?.frame;
     if (f) f.style.zoom = String(zooms[id]);
     const el = document.getElementById('zoom-' + id);
     if (el) el.textContent = Math.round(zooms[id] * 100) + '%';
+    if (save) persistPreferences();
   }
 
   panesEl.addEventListener('click', (e) => {
@@ -72,9 +181,17 @@
       cb.type = 'checkbox';
       cb.checked = enabled.has(a.id);
       cb.addEventListener('change', () => {
+        const oldList = enabledList();
+        const oldStart = Math.min(windowStart, Math.max(oldList.length - visibleCapacity(), 0));
+        const oldAnchor = oldList[oldStart]?.id || null;
         if (cb.checked) enabled.add(a.id); else enabled.delete(a.id);
-        windowStart = Math.min(windowStart, Math.max(enabledList().length - visibleCapacity(), 0));
+        const newList = enabledList();
+        const preservedIndex = oldAnchor ? newList.findIndex(item => item.id === oldAnchor) : -1;
+        windowStart = preservedIndex >= 0
+          ? preservedIndex
+          : Math.min(oldStart, Math.max(newList.length - visibleCapacity(), 0));
         renderPanes();
+        persistPreferences();
       });
       const span = document.createElement('span');
       span.textContent = a.name;
@@ -85,7 +202,7 @@
   }
 
   // —— 窗格渲染 ——
-  // 增量策略：勾选集合变化时只增删对应窗格；翻页只调整可见/离屏布局（不重建 iframe，
+  // 增量策略：首次启用时创建窗格，之后永不删除；翻页只调整可见/离屏布局（不重建 iframe，
   // 平台页面状态、回答位置、草稿全部保留）。
 
   function makePane(a) {
@@ -100,23 +217,15 @@
         <span class="zoom-val" id="zoom-${a.id}" title="点击恢复 100%">100%</span>
         <button class="zoom-btn zoom-in" data-id="${a.id}" title="放大页面">＋</button>
       </header>
-      <iframe id="frame-${a.id}" src="${a.origin}" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"></iframe>
+      <iframe id="frame-${a.id}" src="${a.origin}" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals allow-storage-access-by-user-activation"></iframe>
       <div class="toast" id="toast-${a.id}" style="display:none"></div>`;
     return pane;
   }
 
-  // 勾选集合变化时同步窗格（保留未变化的 iframe；被取消勾选的窗格销毁并清理状态）
+  // 勾选集合变化时只补建新启用的窗格。取消勾选绝不移除 iframe：模型选择、
+  // 草稿和滚动位置继续存活；布局阶段只会把它移到视口外，发送阶段也会跳过它。
   function syncPanes() {
     const list = enabledList();
-    const wanted = new Set(list.map(a => a.id));
-    // 清理已取消勾选的窗格
-    for (const [id, p] of Object.entries(frames)) {
-      if (!wanted.has(id)) {
-        p.frame.closest('.pane').remove();
-        delete frames[id];
-        delete lastSeen[id];
-      }
-    }
     // 清理空态提示
     panesEl.querySelectorAll('.empty').forEach(e => e.remove());
     if (list.length === 0) {
@@ -133,7 +242,7 @@
       panesEl.appendChild(pane);
       frames[a.id] = { frame: pane.querySelector('iframe'), adapter: a };
       lastSeen[a.id] = 0;
-      applyZoom(a.id, zooms[a.id] ?? 1);
+      applyZoom(a.id, zooms[a.id] ?? 1, false);
     }
   }
 
@@ -142,7 +251,11 @@
     const list = enabledList();
     const capacity = visibleCapacity();
     const start = Math.min(windowStart, Math.max(list.length - capacity, 0));
+    windowStart = Math.max(0, start);
     const visibleIds = new Set(list.slice(start, start + capacity).map(a => a.id));
+    for (const p of Object.values(frames)) {
+      p.frame.closest('.pane')?.classList.add('offscreen');
+    }
     for (let index = 0; index < list.length; index += 1) {
       const a = list[index];
       const p = frames[a.id];
@@ -171,14 +284,23 @@
     pageRightEl.disabled = windowStart >= n - capacity;
   }
 
-  pageLeftEl.addEventListener('click', () => { windowStart = Math.max(0, windowStart - 1); layoutPanes(); });
-  pageRightEl.addEventListener('click', () => { windowStart += 1; layoutPanes(); });
+  pageLeftEl.addEventListener('click', () => {
+    windowStart = Math.max(0, windowStart - 1);
+    layoutPanes();
+    persistPreferences();
+  });
+  pageRightEl.addEventListener('click', () => {
+    windowStart += 1;
+    layoutPanes();
+    persistPreferences();
+  });
   let resizeFrame = 0;
   window.addEventListener('resize', () => {
     cancelAnimationFrame(resizeFrame);
     resizeFrame = requestAnimationFrame(() => {
       windowStart = Math.min(windowStart, Math.max(enabledList().length - visibleCapacity(), 0));
       layoutPanes();
+      persistPreferences();
     });
   });
 
@@ -302,7 +424,7 @@
 
   // —— 注入保障：扩展页面直接注入（不经后台消息往返，杜绝 MV3 worker 休眠导致的挂起）——
   const HOSTS = [
-    'chat.deepseek.com', 'www.kimi.com', 'kimi.moonshot.cn', 'www.moonshot.cn', 'www.tongyi.com', 'www.qianwen.com',
+    'www.doubao.com', 'doubao.com', 'chat.deepseek.com', 'www.kimi.com', 'kimi.moonshot.cn', 'www.moonshot.cn', 'www.tongyi.com', 'www.qianwen.com',
     'yiyan.baidu.com', 'wenxin.baidu.com', 'chatgpt.com', 'chat.openai.com'
   ];
 
@@ -753,9 +875,12 @@
     if (!result?.ok || result.tabId !== workbenchTab.id) throw new Error('工作台认证通道注册失败');
   }
 
-  // —— 版本更新（GitHub Releases；侧载扩展无法全自动重载，做到「一键下载 + 两步引导」）——
+  // —— 版本更新：商店版交给 Edge 原生更新；侧载版下载精确用户包并给出最短重载路径。——
   const UPDATE_REPO = 'porcelaintech/parallel-workshop';
   const bannerEl = document.getElementById('update-banner');
+  const isStoreBuild = !chrome.runtime.getManifest().key;
+  let storeUpdateRequested = false;
+  let storeReloadScheduled = false;
 
   function isNewer(a, b) {
     const pa = String(a).split('.').map(Number);
@@ -776,6 +901,43 @@
       : undefined;
   }
 
+  function reloadForStoreUpdate(version) {
+    if (storeReloadScheduled) return;
+    storeReloadScheduled = true;
+    bannerEl.style.display = '';
+    bannerEl.textContent = `Edge 已准备 v${version || '新版'}，正在完成更新…`;
+    setTimeout(() => chrome.runtime.reload(), 250);
+  }
+
+  chrome.runtime.onUpdateAvailable?.addListener((details) => {
+    if (storeUpdateRequested) {
+      reloadForStoreUpdate(details?.version);
+      return;
+    }
+    bannerEl.style.display = '';
+    bannerEl.innerHTML = `Edge 已下载 v${details?.version || '新版'} <button id="update-btn">立即完成更新</button>`;
+    document.getElementById('update-btn')?.addEventListener('click', () => reloadForStoreUpdate(details?.version));
+  });
+
+  async function requestStoreUpdate(latest) {
+    storeUpdateRequested = true;
+    bannerEl.textContent = '正在通过 Edge 检查并安装更新…';
+    try {
+      const result = await chrome.runtime.requestUpdateCheck();
+      if (result?.status === 'update_available') {
+        reloadForStoreUpdate(result.version || latest);
+      } else {
+        storeUpdateRequested = false;
+        bannerEl.textContent = result?.status === 'throttled'
+          ? 'Edge 正在同步更新，请稍后再试'
+          : 'Edge 商店版本正在同步，请稍后再试';
+      }
+    } catch {
+      storeUpdateRequested = false;
+      bannerEl.textContent = 'Edge 更新检查暂时不可用，请稍后再试';
+    }
+  }
+
   async function checkUpdate() {
     try {
       const resp = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`);
@@ -785,16 +947,22 @@
       const current = chrome.runtime.getManifest().version;
       if (!latest || !isNewer(latest, current)) return;
       bannerEl.style.display = '';
-      bannerEl.innerHTML = `🆕 新版本 v${latest} 已发布 <button id="update-btn">立即更新</button>`;
+      bannerEl.innerHTML = `🆕 新版本 v${latest} 已发布 <button id="update-btn">${isStoreBuild ? '立即更新' : '下载更新'}</button>`;
       document.getElementById('update-btn').addEventListener('click', async () => {
+        if (isStoreBuild) {
+          await requestStoreUpdate(latest);
+          return;
+        }
         bannerEl.innerHTML = '正在下载新版本…';
         try {
           const zrel = await (await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`)).json();
           const asset = selectEdgeUpdateAsset(zrel.assets);
           if (!asset) throw new Error('Release 缺少 edge-extension.zip');
-          const blob = await (await fetch(asset.browser_download_url)).blob();
           const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob);
+          // GitHub's release-asset redirects do not consistently expose CORS headers.
+          // Let Edge's native download navigation follow them instead of fetching the
+          // archive into the extension origin first.
+          a.href = asset.browser_download_url;
           a.download = asset.name;
           a.click();
           bannerEl.innerHTML = `已下载 ${asset.name} 到「下载」文件夹：①解压并双击 install.bat ②在 edge://extensions 点「重新加载」`;
@@ -809,9 +977,11 @@
   const startupOverlay = document.getElementById('startup-overlay');
   const startupText = document.getElementById('startup-text');
   try {
-    await registerWorkbenchChannel();
+    await Promise.all([registerWorkbenchChannel(), restorePreferences()]);
     renderChecks();
     renderPanes();
+    preferencesReady = true;
+    persistPreferences(); // Canonicalize first-use, legacy-corrupt and unknown-adapter data.
     setInterval(probeAll, 8000);
     setTimeout(probeAll, 3000);
     setTimeout(checkUpdate, 5000);

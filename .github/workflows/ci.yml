@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -28,7 +29,7 @@ jobs:
         run: |
           unzip -t build/edge-extension.zip
           python3 - <<'PY'
-          import zipfile
+          import json, zipfile
           with zipfile.ZipFile('build/edge-extension.zip') as archive:
               names = archive.namelist()
           assert names and all(name == 'edge-extension/' or name.startswith('edge-extension/') for name in names)
@@ -36,8 +37,101 @@ jobs:
           assert 'edge-extension/install.bat' in names
           with zipfile.ZipFile('build/edge-extension-store.zip') as archive:
               store_names = archive.namelist()
+              store_manifest = json.loads(archive.read('manifest.json'))
           assert 'manifest.json' in store_names
           assert not any(name.startswith('edge-extension/') for name in store_names)
-          for forbidden in ('install.bat', 'launch.bat', 'README.md', 'WINDOWS.md', 'STORE_LISTING.md'):
-              assert forbidden not in store_names
+          assert 'key' not in store_manifest
+          store_files = {name for name in store_names if not name.endswith('/')}
+          expected = {
+              'manifest.json', 'background.js', 'auth-bridge.js', 'intercept.js', 'content.js',
+              'workbench.html', 'workbench.js', 'workbench.css', 'lib/adapters/index.json',
+              'icons/16.png', 'icons/32.png', 'icons/48.png', 'icons/128.png'
+          }
+          assert store_files == expected
           PY
+
+  windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Parse scripts with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          if ($PSVersionTable.PSVersion.Major -ne 5) { throw "Expected Windows PowerShell 5.1, got $($PSVersionTable.PSVersion)" }
+          $files = @('install-windows.ps1', 'Windows\edge-extension\install.ps1', 'Windows\edge-extension\launch.ps1')
+          foreach ($file in $files) {
+            $path = (Resolve-Path $file).Path
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $details = ($errors | ForEach-Object { "$($_.Extent.File):$($_.Extent.StartLineNumber): $($_.Message)" }) -join "`n"
+              throw "PowerShell 5.1 parse failed:`n$details"
+            }
+            $bytes = [IO.File]::ReadAllBytes($path)
+            if ($bytes.Length -lt 3 -or $bytes[0] -ne 0xEF -or $bytes[1] -ne 0xBB -or $bytes[2] -ne 0xBF) {
+              throw "$file lacks the UTF-8 BOM required by Windows PowerShell 5.1"
+            }
+          }
+      - name: Build local user archive
+        shell: powershell
+        run: |
+          $packageRoot = Join-Path $env:RUNNER_TEMP '安装 包'
+          New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
+          Copy-Item -Path 'Windows\edge-extension' -Destination $packageRoot -Recurse -Force
+          $metadata = Join-Path $packageRoot 'edge-extension\_metadata'
+          New-Item -ItemType Directory -Path $metadata -Force | Out-Null
+          Set-Content -Path (Join-Path $metadata 'stale-cache') -Value 'must not be installed'
+          Compress-Archive -Path (Join-Path $packageRoot 'edge-extension') -DestinationPath "$env:RUNNER_TEMP\edge-extension.zip" -Force
+      - name: Verify fast installer in non-ASCII and spaced path
+        shell: powershell
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP '测试 用户\Parallel Workbench'
+          $verifyTarget = Join-Path $env:RUNNER_TEMP 'verify must stay absent'
+          .\install-windows.ps1 -ArchivePath "$env:RUNNER_TEMP\edge-extension.zip" -InstallRoot $verifyTarget -NoLaunch -NoShortcuts -VerifyOnly
+          if (Test-Path $verifyTarget) { throw 'VerifyOnly unexpectedly wrote to InstallRoot' }
+          $elapsed = Measure-Command {
+            .\install-windows.ps1 -ArchivePath "$env:RUNNER_TEMP\edge-extension.zip" -InstallRoot $target -NoLaunch -NoShortcuts
+          }
+          if ($elapsed.TotalSeconds -gt 120) { throw "Installer took $($elapsed.TotalSeconds) seconds" }
+          $installed = Join-Path $target 'edge-extension'
+          if (-not (Test-Path (Join-Path $installed 'manifest.json'))) { throw 'manifest missing after install' }
+          $expectedVersion = (Get-Content 'Windows\edge-extension\manifest.json' -Raw | ConvertFrom-Json).version
+          if ((Get-Content (Join-Path $installed 'manifest.json') -Raw | ConvertFrom-Json).version -ne $expectedVersion) { throw 'version mismatch' }
+          if (Test-Path (Join-Path $installed '_metadata')) { throw 'stale Edge _metadata cache was installed' }
+          $recordedPath = (Get-Content (Join-Path $target 'EXTENSION_PATH.txt') -Raw -Encoding UTF8).Trim()
+          if ($recordedPath -ne $installed) { throw 'EXTENSION_PATH.txt mismatch' }
+          $launch = & (Join-Path $installed 'launch.ps1') -PrintOnly | ConvertFrom-Json
+          if ($launch.WorkbenchURL -ne 'chrome-extension://eeppnjgcjioaohaaoaknkkafhodccmmf/workbench.html') { throw 'launcher URL mismatch' }
+      - name: Verify idempotent reinstall and source-in-target update
+        shell: powershell
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP '测试 用户\Parallel Workbench'
+          $source = Join-Path $target 'edge-extension'
+          Push-Location $source
+          try {
+            & '.\install.ps1' -SourceDir $source -TargetRoot $target -NoLaunch -NoShortcuts
+          } finally {
+            Pop-Location
+          }
+          $expectedVersion = (Get-Content 'Windows\edge-extension\manifest.json' -Raw | ConvertFrom-Json).version
+          if ((Get-Content (Join-Path $target 'edge-extension\manifest.json') -Raw | ConvertFrom-Json).version -ne $expectedVersion) {
+            throw 'idempotent reinstall failed'
+          }
+          if (@(Get-ChildItem -LiteralPath $target -Force | Where-Object { $_.Name -like '.edge-extension.*' }).Count -ne 0) {
+            throw 'installer left staging or backup directories behind'
+          }
+      - name: Verify malformed archive returns failure
+        shell: powershell
+        run: |
+          $badRoot = Join-Path $env:RUNNER_TEMP 'invalid package\edge-extension'
+          New-Item -ItemType Directory -Path $badRoot -Force | Out-Null
+          Set-Content -Path (Join-Path $badRoot 'not-a-manifest.txt') -Value 'invalid'
+          $badZip = Join-Path $env:RUNNER_TEMP 'invalid edge-extension.zip'
+          Compress-Archive -Path $badRoot -DestinationPath $badZip -Force
+          $script = (Resolve-Path '.\install-windows.ps1').Path
+          $command = "& '$($script.Replace("'", "''"))' -ArchivePath '$($badZip.Replace("'", "''"))' -VerifyOnly"
+          $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded
+          if ($LASTEXITCODE -eq 0) { throw 'malformed archive incorrectly returned exit code 0' }

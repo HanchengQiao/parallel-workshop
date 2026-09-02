@@ -2,7 +2,7 @@
 
 > **你是哪个平台？**
 > - 🖥️ **macOS 用户** → 看 [`macOS/`](macOS/README.md) 目录（一键安装：`curl -fsSL https://raw.githubusercontent.com/porcelaintech/parallel-workshop/main/install.sh | bash`）
-> - 🪟 **Windows 用户** → 看 [`Windows/`](Windows/README.md) 目录（下载 `edge-extension.zip` 侧载到 Edge）
+> - 🪟 **Windows 用户** → 看 [`Windows/`](Windows/README.md) 目录（一条固定命令自动获取最新稳定版）
 > - 两个目录各自独立完整，**fork/下载时请按你的平台选择对应目录**
 
 > **发布状态：** v0.2.2 是当前稳定版；v0.2.0 已标记为预发布且不建议继续分发。
@@ -10,6 +10,8 @@
 ---
 
 多模型平行问答工作台：一个窗口平行排布多个 AI 平台的官方网页客户端，顶部统一输入框一键同步发送（⌘↩），回答在各平台原生界面中平行展示。
+
+当前内置平台：ChatGPT、DeepSeek、豆包、Kimi、通义千问、文心一言。
 
 ## 核心设计
 
@@ -27,6 +29,11 @@
 ```sh
 # macOS：从最新稳定 Release 下载、强制校验 SHA-256 后原子安装
 curl -fsSL https://raw.githubusercontent.com/porcelaintech/parallel-workshop/main/install.sh | bash
+```
+
+```powershell
+# Windows：固定命令自动获取最新稳定版
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12; $pwbInstaller = Join-Path $env:TEMP ('ParallelWorkbench-install-' + [Guid]::NewGuid().ToString('N') + '.ps1'); try { Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/porcelaintech/parallel-workshop/main/install-windows.ps1' -OutFile $pwbInstaller -ErrorAction Stop; & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "平行工作台安装失败（退出码 $LASTEXITCODE）" } } finally { Remove-Item -LiteralPath $pwbInstaller -Force -ErrorAction SilentlyContinue }
 ```
 
 > 未签名开源分发：install.sh 校验 GitHub 资产摘要后安装并移除隔离属性；正式对外分发仍建议签名公证。npm 包和 Homebrew tap 尚未发布，因此不再宣传对应命令。

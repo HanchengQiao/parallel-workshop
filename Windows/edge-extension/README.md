@@ -2,6 +2,8 @@
 
 与 macOS 应用共享同一套适配器/注入核心（`Sources/WorkbenchCore/Resources/`），单一事实来源。
 
+当前内置平台：ChatGPT、DeepSeek、豆包、Kimi、通义千问、文心一言。
+
 ## 构建
 
 ```sh
@@ -9,6 +11,16 @@ bash scripts/build-edge-extension.sh   # 复制共享核心 → edge-extension/l
 ```
 
 ## 安装（开发者模式）
+
+仓库用户优先执行固定的一键安装命令：
+
+请在 PowerShell 中直接执行下面整行，不要再次包进 `powershell.exe -Command`。
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12; $pwbInstaller = Join-Path $env:TEMP ('ParallelWorkbench-install-' + [Guid]::NewGuid().ToString('N') + '.ps1'); try { Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/porcelaintech/parallel-workshop/main/install-windows.ps1' -OutFile $pwbInstaller -ErrorAction Stop; & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "平行工作台安装失败（退出码 $LASTEXITCODE）" } } finally { Remove-Item -LiteralPath $pwbInstaller -Force -ErrorAction SilentlyContinue }
+```
+
+源码目录手动侧载：
 
 1. Edge 打开 `edge://extensions`（Chrome 打开 `chrome://extensions`）
 2. 开启「开发人员模式」

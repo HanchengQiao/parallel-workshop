@@ -4,17 +4,15 @@
 
 > v0.2.2 是当前稳定版；v0.2.0 存在 DeepSeek 微信扫码回调缺陷，不建议继续分发。
 
-## 从 GitHub 直接下载安装（命令行，Windows 10/11 自带 curl.exe 与 tar）
+## 从 GitHub 一键安装最新版
 
-```bat
-set VERSION=0.2.2
-curl.exe -LO https://github.com/porcelaintech/parallel-workshop/releases/download/v%VERSION%/edge-extension.zip
-tar -xf edge-extension.zip
-cd edge-extension
-install.bat
+在 PowerShell 中直接执行下面整行（不要再次包进 `powershell.exe -Command`）：
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12; $pwbInstaller = Join-Path $env:TEMP ('ParallelWorkbench-install-' + [Guid]::NewGuid().ToString('N') + '.ps1'); try { Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/porcelaintech/parallel-workshop/main/install-windows.ps1' -OutFile $pwbInstaller -ErrorAction Stop; & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "平行工作台安装失败（退出码 $LASTEXITCODE）" } } finally { Remove-Item -LiteralPath $pwbInstaller -Force -ErrorAction SilentlyContinue }
 ```
 
-`install.bat` 会自动：复制扩展到本地目录 → 创建桌面与开始菜单快捷方式 → 复制路径到剪贴板 → 打开 edge://extensions。随后按弹窗提示：开启「开发人员模式」→ 「加载解压缩的扩展」→ 粘贴剪贴板路径。
+命令会自动查找最新稳定 Release、精确下载 `edge-extension.zip`、重试网络、校验 SHA-256、解压、原子安装、创建快捷方式并打开 Edge 扩展管理页。首次侧载只需按提示完成开发人员模式与“加载解压缩的扩展”。
 
 
 
@@ -27,6 +25,8 @@ install.bat
 
 两者共用同一套适配器/注入核心（`Sources/WorkbenchCore/Resources/` → `scripts/build-edge-extension.sh` 同步）。
 
+当前内置平台：ChatGPT、DeepSeek、豆包、Kimi、通义千问、文心一言。
+
 ## 在 Windows 上安装（开发者模式侧载）
 
 1. 把整个 `edge-extension/` 目录复制到 Windows 机器（或解压 `build/edge-extension.zip`）
@@ -35,7 +35,7 @@ install.bat
 4. 点「加载解压缩的扩展」→ 选择 `edge-extension` 目录
 5. 点工具栏的「平行工作台」图标 → 弹出独立工作台窗口（1500×950，应用式窗口）
 
-> 日常使用前：先在 Edge 里正常登录各平台（chat.deepseek.com / kimi.com 等），扩展里的 pane 直接继承这些登录态。
+> 日常使用前：先在 Edge 里正常登录各平台（chat.deepseek.com / doubao.com / kimi.com 等），扩展里的 pane 直接继承这些登录态。
 
 ## 自动测试（已在 Mac 上的 Edge 真机通过）
 

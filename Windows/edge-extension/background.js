@@ -45,7 +45,7 @@ chrome.action.onClicked.addListener((tab) => {
 
 // 平台主域名清单（content.js 内也有一份，注入时按帧 URL 过滤）
 const HOSTS = [
-  'chat.deepseek.com', 'www.kimi.com', 'kimi.moonshot.cn', 'www.moonshot.cn', 'www.tongyi.com', 'www.qianwen.com',
+  'www.doubao.com', 'doubao.com', 'chat.deepseek.com', 'www.kimi.com', 'kimi.moonshot.cn', 'www.moonshot.cn', 'www.tongyi.com', 'www.qianwen.com',
   'yiyan.baidu.com', 'wenxin.baidu.com', 'chatgpt.com', 'chat.openai.com'
 ];
 
@@ -54,7 +54,7 @@ const WORKBENCH_TABS_KEY = 'wb-workbench-tabs';
 const FRAME_RULE_ID = 9001;
 const FRAME_REQUEST_DOMAINS = [
   'appleid.apple.com', 'auth.openai.com', 'chat.deepseek.com', 'chat.openai.com',
-  'chatgpt.com', 'kimi.moonshot.cn', 'open.weixin.qq.com', 'passport.baidu.com',
+  'chatgpt.com', 'doubao.com', 'www.doubao.com', 'kimi.moonshot.cn', 'open.weixin.qq.com', 'passport.baidu.com',
   'wenxin.baidu.com', 'www.kimi.com', 'www.moonshot.cn', 'www.qianwen.com',
   'www.tongyi.com', 'yiyan.baidu.com'
 ];

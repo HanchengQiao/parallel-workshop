@@ -18,6 +18,8 @@
     "debugger"
   ],
   "host_permissions": [
+    "https://www.doubao.com/*",
+    "https://doubao.com/*",
     "https://chat.deepseek.com/*",
     "https://www.kimi.com/*",
     "https://www.tongyi.com/*",
@@ -47,6 +49,8 @@
   "content_scripts": [
     {
       "matches": [
+        "https://www.doubao.com/*",
+        "https://doubao.com/*",
         "https://chat.deepseek.com/*",
         "https://www.kimi.com/*",
         "https://kimi.moonshot.cn/*",
