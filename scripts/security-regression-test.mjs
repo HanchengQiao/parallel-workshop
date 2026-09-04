@@ -111,7 +111,7 @@ requireText(workbench.includes('chrome.runtime.requestUpdateCheck()') &&
   'Edge 商店版缺少原生检查、就绪事件或一键重载更新链路');
 requireText(distribution.channel === 'sideload' &&
   workbench.includes("distributionChannel === 'edge-addons'") &&
-  release.includes('"install-windows.ps1"'),
+  /["']install-windows\.ps1["']/.test(release),
   'Edge 分发渠道标记或与 Release 同步的 Windows 引导器缺失');
 requireText(manifest.host_permissions?.includes('https://github.com/*') &&
   workbench.includes("crypto.subtle.digest('SHA-256'") &&

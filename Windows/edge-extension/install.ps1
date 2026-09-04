@@ -4,6 +4,7 @@ param(
     [string]$TargetRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ParallelWorkbench'),
     [switch]$NoLaunch,
     [switch]$NoShortcuts,
+    [switch]$NoClipboard,
     [switch]$VerifyOnly
 )
 
@@ -193,10 +194,12 @@ if (-not $NoShortcuts) {
 
 $pathNote = Join-Path $targetRootFull 'EXTENSION_PATH.txt'
 Set-Content -LiteralPath $pathNote -Value $target -Encoding UTF8
-try {
-    if (Get-Command 'Set-Clipboard' -ErrorAction SilentlyContinue) { Set-Clipboard -Value $target }
-    elseif (Get-Command 'clip.exe' -ErrorAction SilentlyContinue) { $target | clip.exe }
-} catch {}
+if (-not $NoClipboard) {
+    try {
+        if (Get-Command 'Set-Clipboard' -ErrorAction SilentlyContinue) { Set-Clipboard -Value $target }
+        elseif (Get-Command 'clip.exe' -ErrorAction SilentlyContinue) { $target | clip.exe }
+    } catch {}
+}
 
 if (-not $NoLaunch) {
     Write-Step '打开 Edge 扩展管理页'

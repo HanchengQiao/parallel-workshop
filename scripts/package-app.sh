@@ -7,38 +7,40 @@ PWB_APP_VERSION="${VERSION:-$(python3 -c 'import json; print(json.load(open("Win
 [[ "$PWB_APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "❌ 无效版本号: $PWB_APP_VERSION"; exit 1; }
 
 APP="build/ParallelWorkbench.app"
+PACKAGE_SCRATCH="${PWB_PACKAGE_SCRATCH:-.build/package-app}"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 echo "==> 编译 release 版（Apple 芯片 + Intel 通用）"
-swift build -c release --arch arm64
-swift build -c release --arch x86_64
+swift build --scratch-path "$PACKAGE_SCRATCH" -c release --arch arm64
+swift build --scratch-path "$PACKAGE_SCRATCH" -c release --arch x86_64
 
-ARM=".build/arm64-apple-macosx/release/ParallelWorkbench"
-X64=".build/x86_64-apple-macosx/release/ParallelWorkbench"
+ARM="$PACKAGE_SCRATCH/arm64-apple-macosx/release/ParallelWorkbench"
+X64="$PACKAGE_SCRATCH/x86_64-apple-macosx/release/ParallelWorkbench"
+APP_BINARY="$APP/Contents/MacOS/ParallelWorkbench"
 if [ ! -f "$ARM" ]; then
   echo "❌ release 二进制缺失: $ARM"
   exit 1
 fi
 if [ -f "$X64" ]; then
   echo "==> 合并通用二进制（arm64 + x86_64）"
-  lipo -create "$ARM" "$X64" -output "$ARM.universal"
-  mv "$ARM.universal" "$ARM"
-  lipo -info "$ARM"
+  lipo -create "$ARM" "$X64" -output "$APP_BINARY"
+else
+  cp "$ARM" "$APP_BINARY"
 fi
-cp "$ARM" "$APP/Contents/MacOS/ParallelWorkbench"
-chmod +x "$APP/Contents/MacOS/ParallelWorkbench"
+chmod +x "$APP_BINARY"
+lipo -info "$APP_BINARY"
 
 echo "==> 复制资源 bundle"
-for b in .build/arm64-apple-macosx/release/*.bundle; do
+for b in "$PACKAGE_SCRATCH"/arm64-apple-macosx/release/*.bundle; do
   [ -e "$b" ] && cp -R "$b" "$APP/Contents/Resources/"
 done
 
 echo "==> 生成图标"
-if [ ! -f "build/AppIcon.icns" ]; then
-  swift scripts/icon.swift build/AppIcon.iconset
-  iconutil -c icns build/AppIcon.iconset -o build/AppIcon.icns
-fi
+rm -rf build/AppIcon.iconset
+rm -f build/AppIcon.icns
+swift scripts/icon.swift build/AppIcon.iconset
+iconutil -c icns build/AppIcon.iconset -o build/AppIcon.icns
 cp build/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" <<PLIST

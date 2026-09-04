@@ -33,7 +33,9 @@ requireText(bootstrap.includes('Invoke-WithRetry') && bootstrap.includes('Get-Fi
 requireText(bootstrap.includes('$release.draft -or $release.prerelease'), '固定入口未拒绝草稿或预发布版本');
 requireText(bootstrap.includes('Expand-Archive -LiteralPath'), '固定入口没有安全处理含空格的压缩包路径');
 requireText(bootstrap.includes('[switch]$VerifyOnly') && bootstrap.includes('[switch]$NoLaunch') &&
-  bootstrap.includes('[switch]$NoShortcuts'), '固定入口缺少无人值守/仅验证参数');
+  bootstrap.includes('[switch]$NoShortcuts') && bootstrap.includes('[switch]$NoClipboard'),
+  '固定入口缺少无人值守/仅验证参数');
+requireText(bootstrap.includes('NoClipboard = [bool]$NoClipboard'), '固定入口没有把无剪贴板模式传给安装器');
 
 const installer = read('Windows/edge-extension/install.ps1');
 requireText(installer.includes("GetFolderPath('LocalApplicationData')"), '默认安装位置必须是当前用户目录');
@@ -53,6 +55,8 @@ requireText(installer.includes('$shortcut.TargetPath = $edgePath') &&
   installer.includes('$shortcut.Arguments = "--app=$workbenchURL"'),
   '快捷方式应直接启动 Edge 应用窗口，避免 PowerShell 窗口和 blank 预热');
 requireText(!installer.includes('--user-data-dir'), '安装/启动不得切换 Edge 用户数据目录');
+requireText(installer.includes('if (-not $NoClipboard)') && installer.includes("Get-Command 'Set-Clipboard'"),
+  '安装器必须允许隔离测试禁止写入全局剪贴板');
 
 const launcher = read('Windows/edge-extension/launch.ps1');
 requireText(launcher.includes('chrome-extension://eeppnjgcjioaohaaoaknkkafhodccmmf/workbench.html'),
@@ -97,7 +101,7 @@ for (const path of ['README.md', 'Windows/README.md', 'Windows/edge-extension/RE
 }
 
 const releaseScript = read('scripts/make-release.sh');
-requireText(releaseScript.includes('"install-windows.ps1"') &&
+requireText(/[\"']install-windows\.ps1[\"']/.test(releaseScript) &&
   releaseScript.includes('SHA256 install-windows.ps1'),
   '发布脚本没有把与 Release 同步的 Windows 引导器作为 Latest 资产上传');
 

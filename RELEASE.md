@@ -15,7 +15,7 @@
 2. 本地准备：`bash scripts/build-edge-extension.sh`（生成用户下载包与 manifest 位于根目录的 `build/edge-extension-store.zip`）
 3. Partner Center 提交扩展包（zip）：
    - 名称：平行工作台（Parallel Workbench）
-   - 简短说明：多模型平行问答：一次提问，DeepSeek/Kimi/通义/文心/ChatGPT 并排回答
+   - 简短说明：多模型平行问答：一次提问，ChatGPT/DeepSeek/豆包/Kimi/通义/文心并排回答
    - 详细说明：见 `Windows/edge-extension/STORE_LISTING.md`
    - 隐私政策：扩展不运营自己的中转服务器；问题和附件只发送到用户勾选的第三方 AI 平台，登录态保存在浏览器配置中
    - 权限说明：activeTab（工具栏从空白页启动时原地复用）、declarativeNetRequest（仅工作台 tab 内的 iframe）、storage、scripting、webNavigation、debugger（尽力而为的附件拖放）
@@ -39,7 +39,7 @@
 ## 发布前检查清单
 
 - [ ] `bash scripts/qa.sh` 全绿
-- [ ] 五平台验收通过（`swift run WorkbenchTester`，注意先退出 GUI）
+- [ ] 六平台回归通过（可发送平台真发、需登录平台 probe；运行前先退出 GUI）
 - [ ] 版本号更新（manifest.json / Info.plist / README）
 - [ ] Edge 商店截图（工作台窗口 + 各平台并排回答效果）
 

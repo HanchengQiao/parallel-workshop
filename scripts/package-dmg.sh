@@ -4,8 +4,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+: "${VERSION:?请通过 VERSION=X.Y.Z 指定 DMG 版本}"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "❌ 无效版本号: $VERSION"; exit 1; }
 APP="build/ParallelWorkbench.app"
-[ -d "$APP" ] || bash scripts/package-app.sh > /dev/null
+[ -d "$APP" ] || VERSION="$VERSION" bash scripts/package-app.sh > /dev/null
+APP_VERSION="$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")"
+[ "$APP_VERSION" = "$VERSION" ] || {
+  echo "❌ App 版本与 DMG 文件名不一致：App=$APP_VERSION DMG=$VERSION"
+  exit 1
+}
 
 STAGE="build/dmg"
 rm -rf "$STAGE"
@@ -13,7 +20,6 @@ mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 
-: "${VERSION:?请通过 VERSION=X.Y.Z 指定 DMG 版本}"
 DMG="build/ParallelWorkbench-${VERSION}.dmg"
 rm -f "$DMG"
 hdiutil create -volname "平行工作台" -srcfolder "$STAGE" -ov -format UDZO "$DMG" > /dev/null

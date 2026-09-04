@@ -5,7 +5,7 @@
 > - 🪟 **Windows 用户** → 看 [`Windows/`](Windows/README.md) 目录（一条固定命令自动获取最新稳定版）
 > - 两个目录各自独立完整，**fork/下载时请按你的平台选择对应目录**
 
-> **发布状态：** v0.2.2 是当前稳定版；v0.2.0 已标记为预发布且不建议继续分发。
+> **发布状态：** v0.3.0 是当前上线候选；GitHub 公开稳定版仍为 v0.2.2。
 
 ---
 
@@ -68,6 +68,7 @@ swift run WorkbenchTester [--probe-only] [--only=id1,id2] [--cookies] [--backup-
 | 平台 | 状态 | 发送机制 | 证据 |
 |---|---|---|---|
 | DeepSeek | ✅ 通过 | 合成回车 | 输入框清空、回答"我是DeepSeek，随时为你答疑解惑。" |
+| 豆包 | ✅ 接入（未登录探测） | 点击 `button#flow-end-msg-send` | Edge iframe 注入生效，未登录角标正确 |
 | Kimi | ✅ 通过 | 点击 `div.send-button-container` | 输入框清空、回答"我是Kimi，由月之暗面开发的AI助手。" |
 | ChatGPT | ✅ 通过（游客） | 点击 `button[aria-label='Send message']` | 回答标志"ChatGPT said"出现 |
 | 通义千问 | ✅ 通过 | 预动作「新建对话」+ 指针事件序列点发送 | 消息气泡 + 自动会话标题 |

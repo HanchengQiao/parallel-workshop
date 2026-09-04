@@ -56,6 +56,17 @@ jobs:
           assert store_files == expected
           assert store_distribution == {'channel': 'edge-addons'}
           PY
+      - name: Verify idempotent universal macOS packaging
+        run: |
+          VERSION="$(python3 -c 'import json; print(json.load(open("Windows/edge-extension/manifest.json"))["version"])')"
+          VERSION="$VERSION" bash scripts/package-app.sh
+          VERSION="$VERSION" bash scripts/package-app.sh
+          APP_ARCHS="$(lipo -archs build/ParallelWorkbench.app/Contents/MacOS/ParallelWorkbench)"
+          [[ " $APP_ARCHS " == *" arm64 "* && " $APP_ARCHS " == *" x86_64 "* ]]
+          test "$(wc -w <<< "$APP_ARCHS" | tr -d ' ')" -eq 2
+          test "$(lipo -archs .build/package-app/arm64-apple-macosx/release/ParallelWorkbench)" = "arm64"
+          test "$(lipo -archs .build/package-app/x86_64-apple-macosx/release/ParallelWorkbench)" = "x86_64"
+          test "$(plutil -extract CFBundleShortVersionString raw build/ParallelWorkbench.app/Contents/Info.plist)" = "$VERSION"
 
   windows-installer:
     runs-on: windows-latest
@@ -66,7 +77,13 @@ jobs:
         shell: powershell
         run: |
           if ($PSVersionTable.PSVersion.Major -ne 5) { throw "Expected Windows PowerShell 5.1, got $($PSVersionTable.PSVersion)" }
-          $files = @('install-windows.ps1', 'Windows\edge-extension\install.ps1', 'Windows\edge-extension\launch.ps1')
+          $files = @(
+            'install-windows.ps1',
+            'Windows\edge-extension\install.ps1',
+            'Windows\edge-extension\launch.ps1',
+            'scripts\windows-device-preflight.ps1',
+            'scripts\windows-device-live-test.ps1'
+          )
           foreach ($file in $files) {
             $path = (Resolve-Path $file).Path
             $tokens = $null
@@ -91,6 +108,25 @@ jobs:
           New-Item -ItemType Directory -Path $metadata -Force | Out-Null
           Set-Content -Path (Join-Path $metadata 'stale-cache') -Value 'must not be installed'
           Compress-Archive -Path (Join-Path $packageRoot 'edge-extension') -DestinationPath "$env:RUNNER_TEMP\edge-extension.zip" -Force
+      - name: Run isolated Windows device harness
+        shell: powershell
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'edge-extension.zip'
+          $digest = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+          $preflightText = & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `
+            '.\scripts\windows-device-preflight.ps1' -InstallRoot (Join-Path $env:RUNNER_TEMP '预检 路径') | Out-String
+          if ($LASTEXITCODE -ne 0) { throw "preflight failed: $LASTEXITCODE" }
+          $preflight = $preflightText | ConvertFrom-Json
+          if (-not $preflight.readOnly -or $preflight.remoteLoginVerified) { throw 'preflight boundary summary is invalid' }
+
+          $liveText = & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `
+            '.\scripts\windows-device-live-test.ps1' -ArchivePath $archive -ExpectedSHA256 $digest `
+            -TemporaryBase $env:RUNNER_TEMP | Out-String
+          if ($LASTEXITCODE -ne 0) { throw "device harness failed: $LASTEXITCODE`n$liveText" }
+          $live = $liveText | ConvertFrom-Json
+          if (-not $live.success -or -not $live.candidate.trustedInstallerScriptsMatched) { throw 'device harness trust check failed' }
+          if (-not $live.isolation.requestedNoLaunch -or -not $live.isolation.requestedNoClipboard) { throw 'device harness isolation flags missing' }
+          if (-not $live.isolation.cleanedUp) { throw 'device harness did not clean its isolated directory' }
       - name: Verify bounded fixed bootstrap command
         shell: powershell
         run: |
@@ -99,7 +135,7 @@ jobs:
           try {
             & curl.exe --fail --location --silent --show-error --retry 3 --retry-max-time 90 --connect-timeout 10 --max-time 60 $url --output $downloaded
             if ($LASTEXITCODE -ne 0) { throw "bootstrap curl failed: $LASTEXITCODE" }
-            & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $downloaded -ArchivePath "$env:RUNNER_TEMP\edge-extension.zip" -NoLaunch -NoShortcuts -VerifyOnly
+            & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $downloaded -ArchivePath "$env:RUNNER_TEMP\edge-extension.zip" -NoLaunch -NoShortcuts -NoClipboard -VerifyOnly
             if ($LASTEXITCODE -ne 0) { throw "downloaded bootstrap failed: $LASTEXITCODE" }
           } finally {
             Remove-Item -LiteralPath $downloaded -Force -ErrorAction SilentlyContinue
@@ -109,10 +145,10 @@ jobs:
         run: |
           $target = Join-Path $env:RUNNER_TEMP '测试 用户\Parallel Workbench'
           $verifyTarget = Join-Path $env:RUNNER_TEMP 'verify must stay absent'
-          .\install-windows.ps1 -ArchivePath "$env:RUNNER_TEMP\edge-extension.zip" -InstallRoot $verifyTarget -NoLaunch -NoShortcuts -VerifyOnly
+          .\install-windows.ps1 -ArchivePath "$env:RUNNER_TEMP\edge-extension.zip" -InstallRoot $verifyTarget -NoLaunch -NoShortcuts -NoClipboard -VerifyOnly
           if (Test-Path $verifyTarget) { throw 'VerifyOnly unexpectedly wrote to InstallRoot' }
           $elapsed = Measure-Command {
-            .\install-windows.ps1 -ArchivePath "$env:RUNNER_TEMP\edge-extension.zip" -InstallRoot $target -NoLaunch -NoShortcuts
+            .\install-windows.ps1 -ArchivePath "$env:RUNNER_TEMP\edge-extension.zip" -InstallRoot $target -NoLaunch -NoShortcuts -NoClipboard
           }
           if ($elapsed.TotalSeconds -gt 120) { throw "Installer took $($elapsed.TotalSeconds) seconds" }
           $installed = Join-Path $target 'edge-extension'
@@ -131,7 +167,7 @@ jobs:
           $source = Join-Path $target 'edge-extension'
           Push-Location $source
           try {
-            & '.\install.ps1' -SourceDir $source -TargetRoot $target -NoLaunch -NoShortcuts
+            & '.\install.ps1' -SourceDir $source -TargetRoot $target -NoLaunch -NoShortcuts -NoClipboard
           } finally {
             Pop-Location
           }

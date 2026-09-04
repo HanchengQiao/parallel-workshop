@@ -5,6 +5,7 @@ param(
     [string]$ArchivePath = '',
     [switch]$NoLaunch,
     [switch]$NoShortcuts,
+    [switch]$NoClipboard,
     [switch]$VerifyOnly
 )
 
@@ -89,6 +90,7 @@ try {
         TargetRoot = $InstallRoot
         NoLaunch = [bool]$NoLaunch
         NoShortcuts = [bool]$NoShortcuts
+        NoClipboard = [bool]$NoClipboard
     }
     & (Join-Path $source 'install.ps1') @parameters
     Write-Step "全部完成：v$($manifest.version)"

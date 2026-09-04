@@ -13,14 +13,16 @@ COMMIT="$(git rev-parse HEAD)"
 SHORT="$(git rev-parse --short=12 HEAD)"
 BRANCH="$(git branch --show-current)"
 VERSION="$(python3 -c 'import json; print(json.load(open("Windows/edge-extension/manifest.json"))["version"])')"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "❌ manifest 版本号无效: $VERSION"; exit 1; }
 TRACKED_COUNT="$(git ls-tree -r --name-only "$COMMIT" | wc -l | tr -d ' ')"
 NAME="ParallelWorkbench-${VERSION}-prelaunch-external-audit-${SHORT}"
 AUDIT_ROOT="build/external-audit"
 STAGE="${AUDIT_ROOT}/${NAME}"
 ARCHIVE="build/${NAME}.zip"
+VERIFY_SIDECAR="build/${NAME}.VERIFY.log"
 
 rm -rf "$STAGE"
-rm -f "$ARCHIVE"
+rm -f "$ARCHIVE" "$VERIFY_SIDECAR"
 mkdir -p "$STAGE/source" "$STAGE/artifacts" "$STAGE/audit"
 
 echo "==> 1/7 运行完整 QA"
@@ -69,6 +71,7 @@ APP_ZIP="$(pwd)/$STAGE/artifacts/ParallelWorkbench.app.zip"
 (cd build && zip -qry -y "$APP_ZIP" ParallelWorkbench.app -x '*/.DS_Store' -x '__MACOSX/*')
 cp "build/ParallelWorkbench-${VERSION}.dmg" "$STAGE/artifacts/"
 cp build/edge-extension.zip build/edge-extension-store.zip "$STAGE/artifacts/"
+cp install-windows.ps1 "$STAGE/artifacts/"
 
 if [ -n "$(git status --porcelain)" ]; then
   echo "❌ 构建改写了受版本控制的文件，拒绝打包"
@@ -85,9 +88,10 @@ fi
 git ls-tree -r --name-only "$COMMIT" > "$STAGE/audit/TRACKED_FILES.txt"
 git ls-tree -r "$COMMIT" > "$STAGE/audit/TRACKED_TREE_WITH_MODES.txt"
 git log -20 --date=iso-strict --pretty=format:'%H%x09%ad%x09%an%x09%s' > "$STAGE/audit/GIT_LOG_LAST_20.txt"
-if git rev-parse -q --verify refs/tags/v0.2.1 > /dev/null; then
-  git diff --binary v0.2.1 "$COMMIT" > "$STAGE/audit/CHANGESET-v0.2.1-to-candidate.diff"
-  printf '%s\n' 'v0.2.1' > "$STAGE/audit/BASELINE_TAG.txt"
+BASELINE_TAG="$(git tag --merged "$COMMIT" --list 'v[0-9]*' --sort=-version:refname | head -n 1)"
+if [ -n "$BASELINE_TAG" ]; then
+  git diff --binary "$BASELINE_TAG" "$COMMIT" > "$STAGE/audit/CHANGESET-${BASELINE_TAG}-to-candidate.diff"
+  printf '%s\n' "$BASELINE_TAG" > "$STAGE/audit/BASELINE_TAG.txt"
 fi
 
 echo "==> 4/7 敏感文件与高置信密钥扫描"
@@ -155,7 +159,7 @@ manifest 当前版本字段为 \`${VERSION}\`；请以 commit 与 SHA-256 清单
 ## 目录
 
 - \`source/\`：由 \`git archive ${COMMIT}\` 导出的全部 ${TRACKED_COUNT} 个受版本控制文件。
-- \`artifacts/\`：macOS App ZIP、DMG、Edge 用户侧载 ZIP、Edge 商店 ZIP。
+- \`artifacts/\`：macOS App ZIP、DMG、Edge 用户侧载 ZIP、Edge 商店 ZIP、Windows Latest 引导器。
 - \`audit/\`：来源、跟踪文件列表、源码/产物 SHA-256、QA、构建与完整性验证日志。
 
 ## 重要边界
@@ -169,19 +173,19 @@ manifest 当前版本字段为 \`${VERSION}\`；请以 commit 与 SHA-256 清单
 
 1. 核对 \`audit/PROVENANCE.txt\` 与两份 SHA-256 清单。
 2. 阅读 \`source/README.md\`、\`source/交付说明/产品说明与代码解读.md\`。
-3. 执行 \`cd source && bash scripts/qa.sh\`。
+3. 执行 \`cd source && npm ci --prefix scripts --ignore-scripts --no-audit --no-fund && bash scripts/qa.sh\`。
 4. 重点审计 Edge 的 \`background.js\`、认证桥、runtime 消息通道、DNR session rule 与单 target 启动策略。
 5. 重点审计 macOS 的 WKWebView 登录围栏、注入核心、更新器 SHA-256 fail-closed 路径。
 EOF
 
 echo "==> 6/7 组装单一 ZIP"
 (cd "$AUDIT_ROOT" && zip -qry "../${NAME}.zip" "$NAME")
-unzip -t "$ARCHIVE" > "$STAGE/audit/VERIFY-OUTER-ZIP.log"
+unzip -t "$ARCHIVE" > "$STAGE/audit/VERIFY-ASSEMBLY-ZIP.log"
 
-# 外层验证日志应在 ZIP 内；写入后重建一次，保证包内证据与最终内容一致。
+# 内部日志验证组装结构；加入该日志后重建最终 ZIP，并把最终字节验证写入同目录 sidecar。
 rm -f "$ARCHIVE"
 (cd "$AUDIT_ROOT" && zip -qry "../${NAME}.zip" "$NAME")
-unzip -t "$ARCHIVE" > /dev/null
+unzip -t "$ARCHIVE" > "$VERIFY_SIDECAR"
 if unzip -Z1 "$ARCHIVE" | rg '/(\.git|\.build|node_modules|_metadata|auth-backup|test-output)(/|$)' > /dev/null; then
   echo "❌ 外审 ZIP 含禁止目录，拒绝交付"
   exit 1
@@ -189,5 +193,6 @@ fi
 
 echo "==> 7/7 完成"
 printf 'PATH=%s\n' "$(pwd)/$ARCHIVE"
+printf 'VERIFY_PATH=%s\n' "$(pwd)/$VERIFY_SIDECAR"
 printf 'SIZE_BYTES=%s\n' "$(stat -f %z "$ARCHIVE")"
 printf 'SHA256=%s\n' "$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
