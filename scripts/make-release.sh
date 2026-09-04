@@ -37,7 +37,7 @@ PY
 [ "$ORIGIN_REPO" = "$REPO" ] || { echo "❌ origin 仓库不匹配: $ORIGIN_REPO"; exit 1; }
 
 echo "==> 同步并锁定 ${REPO}/${DEFAULT_BRANCH}"
-git fetch origin "$DEFAULT_BRANCH" --tags
+git fetch origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}" --tags
 BRANCH="$(git branch --show-current)"
 [ "$BRANCH" = "$DEFAULT_BRANCH" ] || { echo "❌ 只能从 ${DEFAULT_BRANCH} 发布，当前为 $BRANCH"; exit 1; }
 HEAD_SHA="$(git rev-parse HEAD)"
@@ -70,20 +70,51 @@ PY
 
 SHORT="$(git rev-parse --short=12 HEAD)"
 NAME="ParallelWorkbench-${VERSION}-prelaunch-external-audit-${SHORT}"
-STAGE="build/external-audit/${NAME}"
 AUDIT_ARCHIVE="build/${NAME}.zip"
 AUDIT_VERIFY="build/${NAME}.VERIFY.log"
-ARTIFACTS="$STAGE/artifacts"
-[ -d "$ARTIFACTS" ] || { echo "❌ 缺少与 HEAD 对应的外审 stage: $STAGE"; exit 1; }
 [ -f "$AUDIT_ARCHIVE" ] && [ -f "$AUDIT_VERIFY" ] || { echo "❌ 缺少外审 ZIP 或最终验证 sidecar"; exit 1; }
 unzip -t "$AUDIT_ARCHIVE" > /dev/null
+grep -F 'No errors detected' "$AUDIT_VERIFY" > /dev/null
 
-grep -Fx "Manifest version: ${VERSION}" "$STAGE/audit/PROVENANCE.txt" > /dev/null
-grep -Fx "Git commit: ${HEAD_SHA}" "$STAGE/audit/PROVENANCE.txt" > /dev/null
-grep -F 'QA 门禁全部通过' "$STAGE/audit/QA.log" > /dev/null
-grep -F 'PASS:' "$STAGE/audit/SECRET_SCAN.txt" > /dev/null
+python3 - "$AUDIT_ARCHIVE" "$NAME" <<'PY'
+import stat, sys, zipfile
+from pathlib import PurePosixPath
+archive_path, root = sys.argv[1:]
+prefix = root + '/'
+with zipfile.ZipFile(archive_path) as archive:
+    infos = archive.infolist()
+    if not infos:
+        raise SystemExit('外审 ZIP 为空')
+    for info in infos:
+        path = PurePosixPath(info.filename)
+        if path.is_absolute() or '..' in path.parts or not info.filename.startswith(prefix):
+            raise SystemExit(f'外审 ZIP 路径越界: {info.filename}')
+        mode = (info.external_attr >> 16) & 0xFFFF
+        if stat.S_ISLNK(mode):
+            raise SystemExit(f'外审 ZIP 含符号链接: {info.filename}')
+PY
 
-python3 - "$ARTIFACTS" "$VERSION" "$STAGE/audit/ARTIFACTS_SHA256.txt" <<'PY'
+RELEASE_SOURCE="$(mktemp -d /tmp/pwb-sealed-release.XXXXXX)"
+MOUNT_DIR=""
+cleanup_release() {
+  if [ -n "$MOUNT_DIR" ]; then
+    hdiutil detach "$MOUNT_DIR" > /dev/null 2>&1 || true
+    rmdir "$MOUNT_DIR" > /dev/null 2>&1 || true
+  fi
+  rm -rf "$RELEASE_SOURCE"
+}
+trap cleanup_release EXIT
+unzip -q "$AUDIT_ARCHIVE" -d "$RELEASE_SOURCE"
+SEALED_STAGE="$RELEASE_SOURCE/$NAME"
+ARTIFACTS="$SEALED_STAGE/artifacts"
+[ -d "$ARTIFACTS" ] || { echo "❌ 外审 ZIP 内缺少 artifacts"; exit 1; }
+
+grep -Fx "Manifest version: ${VERSION}" "$SEALED_STAGE/audit/PROVENANCE.txt" > /dev/null
+grep -Fx "Git commit: ${HEAD_SHA}" "$SEALED_STAGE/audit/PROVENANCE.txt" > /dev/null
+grep -F 'QA 门禁全部通过' "$SEALED_STAGE/audit/QA.log" > /dev/null
+grep -F 'PASS:' "$SEALED_STAGE/audit/SECRET_SCAN.txt" > /dev/null
+
+python3 - "$ARTIFACTS" "$VERSION" "$SEALED_STAGE/audit/ARTIFACTS_SHA256.txt" <<'PY'
 import json, re, sys, zipfile
 from pathlib import Path
 root = Path(sys.argv[1])
@@ -123,16 +154,12 @@ PY
 cmp -s install-windows.ps1 "$ARTIFACTS/install-windows.ps1" || { echo "❌ 外审 Windows 引导器与 HEAD 不一致"; exit 1; }
 
 MOUNT_DIR="$(mktemp -d /tmp/pwb-release-verify.XXXXXX)"
-cleanup_mount() {
-  hdiutil detach "$MOUNT_DIR" > /dev/null 2>&1 || true
-  rmdir "$MOUNT_DIR" > /dev/null 2>&1 || true
-}
-trap cleanup_mount EXIT
 hdiutil attach "$ARTIFACTS/ParallelWorkbench-${VERSION}.dmg" -readonly -nobrowse -mountpoint "$MOUNT_DIR" > /dev/null
 DMG_VERSION="$(plutil -extract CFBundleShortVersionString raw "$MOUNT_DIR/ParallelWorkbench.app/Contents/Info.plist")"
 [ "$DMG_VERSION" = "$VERSION" ] || { echo "❌ DMG App 版本不匹配: $DMG_VERSION"; exit 1; }
-cleanup_mount
-trap - EXIT
+hdiutil detach "$MOUNT_DIR" > /dev/null
+rmdir "$MOUNT_DIR" > /dev/null 2>&1 || true
+MOUNT_DIR=""
 
 if git show-ref --verify --quiet "refs/tags/${TAG}"; then
   echo "❌ 本地 tag 已存在: $TAG"
@@ -196,8 +223,15 @@ Path(output).write_text(notes)
 PY
 
 echo "==> 创建并推送精确 tag ${TAG}"
+REMOTE_SHA_BEFORE_TAG="$(git ls-remote origin "refs/heads/${DEFAULT_BRANCH}" | awk '{print $1}')"
+[ "$REMOTE_SHA_BEFORE_TAG" = "$HEAD_SHA" ] || { echo "❌ 推 tag 前远端 main 已变化"; exit 1; }
 git tag -a "$TAG" -m "Release $TAG" "$HEAD_SHA"
 git push origin "$TAG"
+REMOTE_SHA_AFTER_TAG="$(git ls-remote origin "refs/heads/${DEFAULT_BRANCH}" | awk '{print $1}')"
+[ "$REMOTE_SHA_AFTER_TAG" = "$HEAD_SHA" ] || {
+  echo "❌ tag 已推送，但远端 main 在发布前发生变化；已拒绝创建 Release"
+  exit 1
+}
 
 echo "==> 从已审计资产创建 Draft Release"
 if ! gh release create "$TAG" "$DMG" "$EDGE_ZIP" "$BOOTSTRAP" \

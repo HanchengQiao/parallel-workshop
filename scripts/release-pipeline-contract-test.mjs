@@ -30,22 +30,25 @@ requireText(audit.includes('manifest 版本号无效') &&
   audit.includes("git tag --merged \"$COMMIT\" --list 'v[0-9]*'"),
   '外审包缺少版本防线、Windows 引导资产、诚实 ZIP 验证或可复跑说明');
 
-requireText(release.includes('git fetch origin "$DEFAULT_BRANCH" --tags') &&
+requireText(release.includes('+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}') &&
   release.includes('[ "$BRANCH" = "$DEFAULT_BRANCH" ]') &&
   release.includes('[ "$HEAD_SHA" = "$REMOTE_SHA" ]') &&
   release.includes('[ "$ORIGIN_REPO" = "$REPO" ]'),
   '发布脚本未锁定规范 origin/main/HEAD');
 requireText(release.includes('prelaunch-external-audit-${SHORT}') &&
   release.includes('ARTIFACTS_SHA256.txt') && release.includes('shasum -a 256 -c') &&
-  release.includes('cmp -s install-windows.ps1'),
-  '发布脚本未复用并核验与 HEAD 精确对应的外审资产');
+  release.includes('cmp -s install-windows.ps1') &&
+  release.includes('pwb-sealed-release.') && release.includes('unzip -q "$AUDIT_ARCHIVE"') &&
+  release.includes('SEALED_STAGE=') && !release.includes('STAGE="build/external-audit/'),
+  '发布脚本未从与 HEAD 精确对应的封存外审 ZIP 解出并核验资产');
 requireText(!release.includes('bash scripts/package-app.sh') &&
   !release.includes('bash scripts/build-edge-extension.sh') &&
   !release.includes('bash scripts/package-dmg.sh'),
   '发布脚本仍会重建未经外审的新字节');
 requireText(release.includes('git show-ref --verify') && release.includes('git ls-remote --exit-code --tags') &&
   release.includes('gh release list') && release.includes('--draft --verify-tag') &&
-  release.includes('REMOTE_TAG_TARGET') && release.includes('digest'),
+  release.includes('REMOTE_TAG_TARGET') && release.includes('REMOTE_SHA_BEFORE_TAG') &&
+  release.includes('REMOTE_SHA_AFTER_TAG') && release.includes('digest'),
   '发布脚本缺少 tag/Release 预检、Draft 或发布后资产回查');
 requireText(storeListing.includes('豆包') && !storeListing.includes('五平台'),
   '商店文案仍遗漏豆包或写成五平台');
