@@ -285,7 +285,7 @@ $summary = [pscustomobject][ordered]@{
     }
     installedVersion = $manifestVersion
     launchProbe = $launchProbe
-    stages = @($stages)
+    stages = $stages.ToArray()
     error = $failure
 }
 $summary | ConvertTo-Json -Depth 8

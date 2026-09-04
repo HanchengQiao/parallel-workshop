@@ -20,8 +20,11 @@ for (const path of [preflightPath, livePath]) {
     requireText(!source.includes(ps7Only), `${path} 使用了 Windows PowerShell 5.1 不支持的语法：${ps7Only}`);
   }
 }
-
 const preflight = read(preflightPath);
+const live = read(livePath);
+requireText(preflight.includes('checks = $checks.ToArray()') &&
+  live.includes('stages = $stages.ToArray()'),
+  'PowerShell 5.1 不得用 @($genericList) 序列化泛型 List');
 requireText(preflight.includes('[ValidateRange(1, 60)]'), '网络超时必须限制为 1–60 秒，避免无限等待');
 requireText(preflight.includes('readOnly = $true') && preflight.includes('readyForInstallerTest') &&
   preflight.includes('windowsHostReadyForMacSshProbe') && preflight.includes('remoteLoginVerified = $false'),
@@ -52,7 +55,6 @@ for (const mutation of [
   requireText(!mutation.test(preflight), `只读预检包含潜在修改命令：${mutation}`);
 }
 
-const live = read(livePath);
 requireText(live.includes("ParameterSetName = 'Archive'") && live.includes("ParameterSetName = 'Url'") &&
   live.includes('[string]$ArchivePath') && live.includes('[Uri]$ArchiveUrl'), '真机测试必须接受候选 ZIP 或 HTTPS URL');
 requireText(live.includes("$ArchiveUrl.Scheme -ne 'https'") || live.includes("$Uri.Scheme -ne 'https'"),

@@ -87,7 +87,7 @@ function Get-PathAccessAssessment([string]$RequestedPath) {
         $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
         $sidValues = @()
         if ($identity.User) { $sidValues += $identity.User.Value }
-        foreach ($group in @($identity.Groups)) { $sidValues += $group.Value }
+        foreach ($group in $identity.Groups) { $sidValues += $group.Value }
 
         $writeMask = [int64](
             [Security.AccessControl.FileSystemRights]::Write -bor
@@ -299,7 +299,7 @@ $result = [pscustomobject][ordered]@{
     windowsHostReadyForMacSshProbe = $readyForRemote
     remoteLoginVerified = $false
     writePermissionRequiresLiveTest = $true
-    checks = @($checks)
+    checks = $checks.ToArray()
     issues = $issues
 }
 $result | ConvertTo-Json -Depth 8
