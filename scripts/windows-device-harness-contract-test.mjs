@@ -25,6 +25,9 @@ const live = read(livePath);
 requireText(preflight.includes('checks = $checks.ToArray()') &&
   live.includes('stages = $stages.ToArray()'),
   'PowerShell 5.1 不得用 @($genericList) 序列化泛型 List');
+requireText(live.includes('$MyInvocation.MyCommand.Path') &&
+  live.includes("if (-not $BootstrapPath)") && !live.includes('Split-Path -Parent $PSScriptRoot'),
+  'PowerShell 5.1 必须在脚本主体内解析仓库路径，不能在参数默认值使用 PSScriptRoot');
 requireText(preflight.includes('[ValidateRange(1, 60)]'), '网络超时必须限制为 1–60 秒，避免无限等待');
 requireText(preflight.includes('readOnly = $true') && preflight.includes('readyForInstallerTest') &&
   preflight.includes('windowsHostReadyForMacSshProbe') && preflight.includes('remoteLoginVerified = $false'),

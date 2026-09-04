@@ -7,8 +7,8 @@ param(
     [Uri]$ArchiveUrl,
 
     [string]$ExpectedSHA256 = '',
-    [string]$BootstrapPath = (Join-Path (Split-Path -Parent $PSScriptRoot) 'install-windows.ps1'),
-    [string]$TrustedExtensionSource = (Join-Path (Split-Path -Parent $PSScriptRoot) 'Windows\edge-extension'),
+    [string]$BootstrapPath = '',
+    [string]$TrustedExtensionSource = '',
     [string]$TemporaryBase = ([IO.Path]::GetTempPath()),
     [int]$StepTimeoutSeconds = 180,
     [switch]$KeepArtifacts
@@ -18,6 +18,10 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+$scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repositoryRoot = Split-Path -Parent $scriptDirectory
+if (-not $BootstrapPath) { $BootstrapPath = Join-Path $repositoryRoot 'install-windows.ps1' }
+if (-not $TrustedExtensionSource) { $TrustedExtensionSource = Join-Path $repositoryRoot 'Windows\edge-extension' }
 $timer = [Diagnostics.Stopwatch]::StartNew()
 $stages = New-Object 'System.Collections.Generic.List[object]'
 $testRoot = Join-Path ([IO.Path]::GetFullPath($TemporaryBase)) ('ParallelWorkbench-device-test-' + [Guid]::NewGuid().ToString('N'))
