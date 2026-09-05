@@ -50,6 +50,7 @@ jobs:
           expected = {
               'manifest.json', 'distribution.json', 'background.js', 'auth-bridge.js', 'intercept.js', 'content.js',
               'workbench.html', 'workbench.js', 'workbench.css', 'lib/model-preference.js',
+              'launch.html', 'launch.js', 'launch.css',
               'lib/adapters/index.json',
               'icons/16.png', 'icons/32.png', 'icons/48.png', 'icons/128.png'
           }
@@ -71,8 +72,13 @@ jobs:
   windows-installer:
     runs-on: windows-latest
     timeout-minutes: 10
+    env:
+      PWB_TEST_INSTALL_RELATIVE: 测试 用户\Parallel Workbench
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
       - name: Parse scripts with Windows PowerShell 5.1
         shell: powershell
         run: |
@@ -81,6 +87,7 @@ jobs:
             'install-windows.ps1',
             'Windows\edge-extension\install.ps1',
             'Windows\edge-extension\launch.ps1',
+            'scripts\windows-installer-behavior-test.ps1',
             'scripts\windows-device-preflight.ps1',
             'scripts\windows-device-live-test.ps1'
           )
@@ -98,6 +105,9 @@ jobs:
               throw "$file lacks the UTF-8 BOM required by Windows PowerShell 5.1"
             }
           }
+      - name: Verify fast metadata and existing-profile routing
+        shell: powershell
+        run: .\scripts\windows-installer-behavior-test.ps1
       - name: Build local user archive
         shell: powershell
         run: |
@@ -143,7 +153,7 @@ jobs:
       - name: Verify fast installer in non-ASCII and spaced path
         shell: powershell
         run: |
-          $target = Join-Path $env:RUNNER_TEMP '测试 用户\Parallel Workbench'
+          $target = Join-Path $env:RUNNER_TEMP $env:PWB_TEST_INSTALL_RELATIVE
           $verifyTarget = Join-Path $env:RUNNER_TEMP 'verify must stay absent'
           .\install-windows.ps1 -ArchivePath "$env:RUNNER_TEMP\edge-extension.zip" -InstallRoot $verifyTarget -NoLaunch -NoShortcuts -NoClipboard -VerifyOnly
           if (Test-Path $verifyTarget) { throw 'VerifyOnly unexpectedly wrote to InstallRoot' }
@@ -159,11 +169,13 @@ jobs:
           $recordedPath = (Get-Content (Join-Path $target 'EXTENSION_PATH.txt') -Raw -Encoding UTF8).Trim()
           if ($recordedPath -ne $installed) { throw 'EXTENSION_PATH.txt mismatch' }
           $launch = & (Join-Path $installed 'launch.ps1') -PrintOnly | ConvertFrom-Json
-          if ($launch.WorkbenchURL -ne 'chrome-extension://eeppnjgcjioaohaaoaknkkafhodccmmf/workbench.html') { throw 'launcher URL mismatch' }
+          if ($launch.WorkbenchURL -ne 'chrome-extension://eeppnjgcjioaohaaoaknkkafhodccmmf/launch.html') { throw 'launcher URL mismatch' }
+          $expectedStartURL = [Uri]::new((Join-Path $installed 'start.html'), [UriKind]::Absolute).AbsoluteUri
+          if ($launch.StartURL -ne $expectedStartURL -or -not $launch.Arguments.Contains($expectedStartURL)) { throw 'visible startup page URL mismatch' }
       - name: Verify idempotent reinstall and source-in-target update
         shell: powershell
         run: |
-          $target = Join-Path $env:RUNNER_TEMP '测试 用户\Parallel Workbench'
+          $target = Join-Path $env:RUNNER_TEMP $env:PWB_TEST_INSTALL_RELATIVE
           $source = Join-Path $target 'edge-extension'
           Push-Location $source
           try {
@@ -193,3 +205,28 @@ jobs:
             '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded
           ) -Wait -PassThru -NoNewWindow
           if ($process.ExitCode -eq 0) { throw 'malformed archive incorrectly returned exit code 0' }
+      - name: Verify installed package in real Windows Edge
+        shell: powershell
+        run: |
+          git fetch origin tag v0.3.1 --depth=1
+          if ($LASTEXITCODE -ne 0) { throw 'Could not fetch the actual published v0.3.1 upgrade fixture' }
+          $installed = Join-Path (Join-Path $env:RUNNER_TEMP $env:PWB_TEST_INSTALL_RELATIVE) 'edge-extension'
+          $launch = & (Join-Path $installed 'launch.ps1') -PrintOnly | ConvertFrom-Json
+          $env:PWB_EDGE_BINARY = $launch.EdgePath
+          $env:PWB_EDGE_SOURCE = $installed
+          $env:PWB_EDGE_START_URL = $launch.StartURL
+          $env:PWB_EDGE_EVIDENCE = Join-Path $env:GITHUB_WORKSPACE 'build\windows-edge-live'
+          node scripts/edge-launch-refresh-live-test.mjs
+          if ($LASTEXITCODE -ne 0) {
+            $nodeExit = $LASTEXITCODE
+            Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000; StartTime = (Get-Date).AddMinutes(-5) } -ErrorAction SilentlyContinue |
+              Where-Object { $_.Message -match '\bnode\.exe\b' } | Select-Object -First 2 | ForEach-Object { Write-Host $_.Message }
+            throw "Real Windows Edge launch failed: $nodeExit"
+          }
+      - name: Upload raw Windows Edge launch evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-edge-live-evidence
+          path: build/windows-edge-live
+          if-no-files-found: ignore

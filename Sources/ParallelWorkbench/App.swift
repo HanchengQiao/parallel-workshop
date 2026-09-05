@@ -17,7 +17,7 @@ struct ParallelWorkbenchApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("平行工作台") {
+        WindowGroup("智囊 · Braintrust") {
             ContentView()
                 .environmentObject(updates)
                 .frame(minWidth: 1280, minHeight: 780)

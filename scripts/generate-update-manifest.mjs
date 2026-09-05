@@ -16,7 +16,7 @@ const manifest = {
   dmgSHA256: digest(`ParallelWorkbench-${version}.dmg`),
   edgeURL: `${prefix}edge-extension.zip`,
   edgeSHA256: digest('edge-extension.zip'),
-  notes: `平行工作台 v${version}`
+  notes: `智囊 · Braintrust v${version}`
 };
 writeFileSync(resolve(directory, 'update.json'), JSON.stringify(manifest, null, 2) + '\n');
 console.log(`Update index generated for v${version}`);

@@ -1,6 +1,13 @@
 // 工作台页面：与 macOS 版对齐 —— 平台勾选（参与显示与发送）、按窗口宽度同时显示 1–3 个窗格
 // （超出分页导航）、发送给全部勾选平台（不可见的窗格以离屏方式保持活跃）、错误可见化。
 (async () => {
+  if (window.self !== window.top) return;
+  // The local desktop entry uses a resource that older releases already expose.
+  // Leave the fragment before registering the exact workbench message origin.
+  if (window.location.hash === '#launch') {
+    window.location.replace(chrome.runtime.getURL('launch.html'));
+    return;
+  }
   const adapters = await fetch(chrome.runtime.getURL('lib/adapters/index.json')).then(r => r.json());
   const distributionChannel = await fetch(chrome.runtime.getURL('distribution.json'))
     .then(response => response.ok ? response.json() : {})
@@ -906,6 +913,37 @@
   let storeUpdateRequested = false;
   let storeReloadScheduled = false;
   document.getElementById('update-version').textContent = `v${currentVersion}`;
+  let installedVersionCheck = null;
+  let activatingInstalledUpdate = false;
+
+  function activateInstalledUpdate() {
+    if (activatingInstalledUpdate) return Promise.resolve(true);
+    if (isStoreBuild || sending) return Promise.resolve(false);
+    if (installedVersionCheck) return installedVersionCheck;
+    installedVersionCheck = (async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      try {
+        const response = await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store', signal: controller.signal });
+        if (!response.ok) return false;
+        const installed = await response.json();
+        if (/^\d+\.\d+\.\d+(?:\.\d+)?$/.test(installed.version || '') && installed.version !== currentVersion) {
+          if (sending) return false;
+          if (questionEl.value.trim() || attachments.length) {
+            renderUpdate('installed-pending', `v${installed.version} 已安装。请先发送或清空当前输入和附件，再启用新版。`);
+            return true;
+          }
+          activatingInstalledUpdate = true;
+          renderUpdate('reloading', `正在启用已安装的 v${installed.version}…`);
+          window.location.replace(chrome.runtime.getURL('launch.html'));
+          return true;
+        }
+      } catch { /* A partial install must not interrupt the running workbench. */ }
+      finally { clearTimeout(timer); }
+      return false;
+    })().finally(() => { installedVersionCheck = null; });
+    return installedVersionCheck;
+  }
 
   function releaseVersion(release) {
     const version = String(release?.tag_name || '').replace(/^v/, '');
@@ -922,13 +960,13 @@
     const latest = storeReadyVersion || releaseVersion(availableRelease);
     const labels = {
       checking: '正在检查…', downloading: '正在下载…', installing: '正在更新…',
-      reloading: '正在重启…', error: '重试 / Retry', downloaded: '再次下载更新'
+      reloading: '正在重启…', error: '重试 / Retry', downloaded: '再次下载更新', 'installed-pending': '启用已安装新版'
     };
     updateButton.textContent = ['available', 'ready'].includes(state)
       ? `Update · v${latest}`
       : (labels[state] || '检查更新 / Check updates');
     updateButton.title = ['available', 'ready', 'downloaded'].includes(state)
-      ? (isStoreBuild ? '更新并重新加载工作台' : '下载更新包，安装后在 Edge 中重新加载')
+      ? (isStoreBuild ? '更新并重新加载工作台' : '下载更新包，安装后自动启用新版本')
       : '检查 GitHub 最新正式版本';
     updateStatusEl.textContent = message;
   }
@@ -1052,7 +1090,27 @@
     if (storeReloadScheduled) return;
     storeReloadScheduled = true;
     renderUpdate('reloading', `Edge 已准备 v${version || '新版'}，正在完成更新…`);
-    setTimeout(() => chrome.runtime.reload(), 250);
+    setTimeout(async () => {
+      try {
+        const tab = await chrome.tabs.getCurrent();
+        if (!Number.isInteger(tab?.id)) throw new Error('无法恢复当前工作台');
+        const contexts = await chrome.runtime.getContexts({ contextTypes: ['TAB'] });
+        const entryURLs = [chrome.runtime.getURL('workbench.html'), chrome.runtime.getURL('launch.html')];
+        const tabIds = contexts.filter(context => context.frameId === 0 && entryURLs.includes(context.documentUrl))
+          .map(context => context.tabId).filter(Number.isInteger).slice(0, 30);
+        const workbenchTabIds = contexts.filter(context => context.frameId === 0 && context.documentUrl === entryURLs[0])
+          .map(context => context.tabId).filter(id => tabIds.includes(id));
+        await chrome.storage.local.set({ 'wb-pending-extension-reload': {
+          tabId: tab.id, tabIds, workbenchTabIds, version, createdAt: Date.now()
+        } });
+        chrome.runtime.reload();
+      } catch {
+        storeReloadScheduled = false;
+        storeUpdateRequested = false;
+        retryAction = 'store';
+        renderUpdate('error', '暂时无法准备更新，请重试');
+      }
+    }, 250);
   }
 
   chrome.runtime.onUpdateAvailable?.addListener((details) => {
@@ -1120,7 +1178,7 @@
       a.click();
       setTimeout(() => URL.revokeObjectURL(objectURL), 60000);
       availableRelease = zrel;
-      renderUpdate('downloaded', `v${latest} 已下载并校验。解压 → 双击 install.bat → 在 edge://extensions 点「重新加载」。`);
+      renderUpdate('downloaded', `v${latest} 已下载并校验。解压后双击 install.bat，安装器将打开智囊并启用新版。`);
     } catch (error) {
       retryAction = 'download';
       renderUpdate('error', '下载失败，请重试。未安装任何文件。');
@@ -1133,6 +1191,7 @@
     if (automatic && lastUpdateCheckAt && Date.now() - lastUpdateCheckAt < UPDATE_FOCUS_THROTTLE_MS) return;
     lastUpdateCheckAt = Date.now();
     return runUpdateTask(async () => {
+      if (await activateInstalledUpdate()) return;
       renderUpdate('checking', '正在检查最新版本…');
       try {
         const rel = await fetchLatestRelease();
@@ -1170,7 +1229,11 @@
   });
 
   function checkUpdateOnForeground() {
-    if (document.visibilityState === 'visible') checkUpdate({ automatic: true });
+    if (document.visibilityState === 'visible') {
+      activateInstalledUpdate().then(activating => {
+        if (!activating) checkUpdate({ automatic: true });
+      });
+    }
   }
   window.addEventListener('focus', checkUpdateOnForeground);
   document.addEventListener('visibilitychange', checkUpdateOnForeground);
@@ -1180,6 +1243,8 @@
   const startupOverlay = document.getElementById('startup-overlay');
   const startupText = document.getElementById('startup-text');
   try {
+    await activateInstalledUpdate();
+    if (activatingInstalledUpdate) return;
     const [, preferencesRestored] = await Promise.all([registerWorkbenchChannel(), restorePreferences()]);
     renderChecks();
     renderPanes();

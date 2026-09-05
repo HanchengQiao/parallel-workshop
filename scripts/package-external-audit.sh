@@ -152,7 +152,7 @@ unzip -t build/edge-extension.zip > "$STAGE/audit/VERIFY-Edge-user-zip.log"
 unzip -t build/edge-extension-store.zip > "$STAGE/audit/VERIFY-Edge-store-zip.log"
 
 cat > "$STAGE/README-EXTERNAL-AUDIT.md" <<EOF
-# Parallel Workbench · 上线前外部审计包
+# 智囊 · Braintrust · 上线前外部审计包
 
 本包对应 Git commit \`${COMMIT}\`，候选状态为 **prelaunch**，不是公开 Release。
 manifest 当前版本字段为 \`${VERSION}\`；请以 commit 与 SHA-256 清单识别本候选，避免与同版本号的历史公开资产混淆。

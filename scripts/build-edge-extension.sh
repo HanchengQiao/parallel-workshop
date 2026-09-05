@@ -84,7 +84,7 @@ echo "✅ 传输包已生成：build/edge-extension.zip"
 STORE_STAGE="$(mktemp -d /tmp/pwb-edge-store.XXXXXX)"
 STORE_ZIP="$(pwd)/build/edge-extension-store.zip"
 trap 'rm -rf "$STORE_STAGE"' EXIT
-cp Windows/edge-extension/{background.js,auth-bridge.js,intercept.js,content.js,workbench.html,workbench.js,workbench.css} "$STORE_STAGE/"
+cp Windows/edge-extension/{background.js,auth-bridge.js,intercept.js,content.js,workbench.html,workbench.js,workbench.css,launch.html,launch.js,launch.css} "$STORE_STAGE/"
 printf '%s\n' '{"channel":"edge-addons"}' > "$STORE_STAGE/distribution.json"
 mkdir -p "$STORE_STAGE/icons" "$STORE_STAGE/lib/adapters"
 cp Windows/edge-extension/icons/{16.png,32.png,48.png,128.png} "$STORE_STAGE/icons/"

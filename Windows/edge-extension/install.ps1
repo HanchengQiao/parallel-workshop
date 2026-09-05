@@ -12,7 +12,6 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $timer = [Diagnostics.Stopwatch]::StartNew()
 $expectedExtensionID = 'eeppnjgcjioaohaaoaknkkafhodccmmf'
-$workbenchURL = 'chrome-extension://eeppnjgcjioaohaaoaknkkafhodccmmf/workbench.html'
 
 function Write-Step([string]$Message) {
     Write-Host ('[{0,6:N1}s] {1}' -f $timer.Elapsed.TotalSeconds, $Message)
@@ -47,7 +46,7 @@ function Get-EdgePath {
 function Assert-ExtensionSource([string]$Path) {
     foreach ($required in @(
         'manifest.json', 'distribution.json', 'background.js', 'content.js', 'workbench.html', 'workbench.js',
-        'workbench.css', 'lib\model-preference.js', 'lib\adapters\index.json', 'install.ps1', 'launch.ps1'
+        'workbench.css', 'launch.html', 'launch.js', 'launch.css', 'start.html', 'start.js', 'lib\model-preference.js', 'lib\adapters\index.json', 'install.ps1', 'launch.ps1'
     )) {
         if (-not (Test-Path -LiteralPath (Join-Path $Path $required))) {
             throw "安装源缺少 $required"
@@ -113,7 +112,7 @@ if ($source.Equals($targetRootFull, [StringComparison]::OrdinalIgnoreCase)) {
     throw 'SourceDir 不能与 TargetRoot 相同'
 }
 
-Write-Step "准备安装 v$version（无需管理员权限）"
+Write-Step "正在安装智囊 v$version"
 New-Item -ItemType Directory -Path $targetRootFull -Force | Out-Null
 foreach ($path in @($stage, $backup)) {
     if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
@@ -170,6 +169,21 @@ if ($installSucceeded -and (Test-Path -LiteralPath $backup)) {
     catch { Write-Warning "新版已安装，但旧版临时备份未能删除：$backup" }
 }
 
+$launchInfo = $null
+if ((-not $NoLaunch) -or (-not $NoShortcuts)) {
+    $launchInfo = & (Join-Path $target 'launch.ps1') -PrintOnly | ConvertFrom-Json
+}
+
+function Test-ProductShortcut($Shortcut, [string]$ProductRoot) {
+    if ([string]$Shortcut.Arguments -match 'chrome-extension://eeppnjgcjioaohaaoaknkkafhodccmmf/(workbench|launch)\.html(?:["\s]|$)') { return $true }
+    $startURL = [Uri]::new((Join-Path $ProductRoot 'edge-extension\start.html'), [UriKind]::Absolute).AbsoluteUri
+    if (([string]$Shortcut.Arguments).Contains('--app="' + $startURL + '"')) { return $true }
+    foreach ($relative in @('launch.bat', 'launch.ps1', 'edge-extension\launch.bat', 'edge-extension\launch.ps1')) {
+        if ([string]$Shortcut.TargetPath -eq (Join-Path $ProductRoot $relative)) { return $true }
+    }
+    return $false
+}
+
 if (-not $NoShortcuts) {
     Write-Step '创建桌面与开始菜单快捷方式'
     $shell = New-Object -ComObject WScript.Shell
@@ -180,12 +194,31 @@ if (-not $NoShortcuts) {
     foreach ($dir in $shortcutDirs) {
         try {
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
-            $shortcut = $shell.CreateShortcut((Join-Path $dir '平行工作台.lnk'))
+            $newShortcutPath = Join-Path $dir '智囊.lnk'
+            $shortcut = $shell.CreateShortcut($newShortcutPath)
+            if ((Test-Path -LiteralPath $newShortcutPath) -and (-not (Test-ProductShortcut $shortcut $targetRootFull))) {
+                throw '已有同名快捷方式属于其他程序，已保留；可运行安装目录中的 launch.bat'
+            }
             $shortcut.TargetPath = $edgePath
-            $shortcut.Arguments = "--app=$workbenchURL"
+            $shortcut.Arguments = $launchInfo.Arguments
             $shortcut.WorkingDirectory = (Split-Path -Parent $edgePath)
             $shortcut.IconLocation = $edgePath + ',0'
+            $shortcut.Description = '智囊 Braintrust · 多模型并行工作台'
             $shortcut.Save()
+            foreach ($legacyName in @('平行工作台.lnk', 'Parallel Workbench.lnk', 'ParallelWorkbench.lnk')) {
+                $legacyPath = Join-Path $dir $legacyName
+                if (Test-Path -LiteralPath $legacyPath) {
+                    $legacy = $shell.CreateShortcut($legacyPath)
+                    if (Test-ProductShortcut $legacy $targetRootFull) {
+                        # 保留用户原有入口，同时让它启动新版；不触碰任何其他应用快捷方式。
+                        $legacy.TargetPath = $edgePath
+                        $legacy.Arguments = $launchInfo.Arguments
+                        $legacy.WorkingDirectory = $shortcut.WorkingDirectory
+                        $legacy.Description = $shortcut.Description
+                        $legacy.Save()
+                    }
+                }
+            }
         } catch {
             Write-Warning "快捷方式创建失败（$dir）：$($_.Exception.Message)"
         }
@@ -202,11 +235,23 @@ if (-not $NoClipboard) {
 }
 
 if (-not $NoLaunch) {
-    Write-Step '打开 Edge 扩展管理页'
-    Start-Process -FilePath $edgePath -ArgumentList 'edge://extensions'
+    if ($launchInfo.ExtensionReady) {
+        Write-Step '打开智囊，正在确认已加载最新版'
+        Start-Process -FilePath $edgePath -ArgumentList $launchInfo.Arguments
+    } else {
+        Write-Step '打开 Edge，请完成加载或启用智囊'
+        $managerArguments = '--profile-directory="' + $launchInfo.ProfileDirectory + '" edge://extensions'
+        Start-Process -FilePath $edgePath -ArgumentList $managerArguments
+    }
 }
 
 Write-Step "安装文件已就绪：$target"
-Write-Host '首次安装：开启开发人员模式 → 加载解压缩的扩展 → 粘贴已复制的路径。'
-Write-Host '已有安装：在扩展卡片点击“重新加载”。'
+if ($null -eq $launchInfo -or -not $launchInfo.ExtensionReady) {
+    Write-Host '首次使用：在 Edge 开启“开发人员模式” → “加载解压缩的扩展” → 选择上面的安装路径。'
+    Write-Host '首次加载后会自动打开智囊。'
+    if (-not $NoShortcuts) { Write-Host '若是启用停用扩展或更换旧安装目录，完成后请双击桌面的“智囊”。' }
+    else { Write-Host '若是启用停用扩展或更换旧安装目录，完成后可运行安装目录中的 launch.bat。' }
+    Write-Host '旧来源安装请使用上面的新路径重新加载。'
+}
+if (-not $NoShortcuts) { Write-Host '以后双击桌面或开始菜单中的“智囊”即可打开。' }
 Write-Host ('完成用时：{0:N1} 秒' -f $timer.Elapsed.TotalSeconds)

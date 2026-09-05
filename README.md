@@ -1,25 +1,23 @@
-# 平行工作台（多模型平行比较工作台）
+# 智囊 · Braintrust
 
-> **你是哪个平台？**
-> - 🖥️ **macOS 用户** → 看 [`macOS/`](macOS/README.md) 目录（一键安装：`curl -fsSL https://raw.githubusercontent.com/porcelaintech/parallel-workshop/main/install.sh | bash`）
-> - 🪟 **Windows 用户** → 看 [`Windows/`](Windows/README.md) 目录（一条固定命令自动获取最新稳定版）
-> - 两个目录各自独立完整，**fork/下载时请按你的平台选择对应目录**
+一次提问，多位 AI 并排回答。智囊（原「平行工作台」）把 ChatGPT、DeepSeek、豆包、Kimi、通义千问和文心一言放进同一个工作区。
 
-> **发布状态：** v0.3.1 是当前稳定版。
+- [Windows 安装与打开](Windows/README.md)：一条 PowerShell 命令，之后从桌面「智囊」启动。
+- [macOS 安装与打开](macOS/README.md)：一条终端命令安装原生应用。
+- [复制给 Agent 的极简安装 Prompt](AGENT_INSTALL_PROMPT.md)：按平台直接执行官方命令。
 
-## v0.3.1 更新
+## v0.4.0 更新
 
-- **固定更新入口**：顶部始终显示 `Update` 和当前版本，随时可检查更新。
-- **明确更新状态**：区分「已是最新版」、网络超时与服务错误；检查失败后可点击重试。
-- **持续检查新版**：启动、回到前台及每 6 小时自动检查，短时间重复回前台会合并检查。
-- **备用更新索引**：GitHub API 受限或暂时不可用时，改用 Release 中的 `update.json` 获取版本和资产摘要。
-- **完善安装与重启**：macOS 点击 `Update` 下载、校验并安装，等待旧进程退出后重启；Edge 侧载版校验下载后引导安装和重新加载。
+v0.4.0 是当前稳定版。一键安装入口始终获取最新稳定 Release。
+
+- **新名字「智囊 · Braintrust」**：双端使用清晰的纯文字标题。
+- **安装更直接**：Windows/macOS 各有一段固定 Prompt，Agent 拿到后直接运行对应安装命令。
+- **桌面直接打开**：Windows 桌面与开始菜单提供「智囊」入口，无需寻找浏览器的扩展菜单。
+- **启动与更新更清楚**：启动页显示加载状态；更新后检查实际运行的扩展版本，并重新加载本扩展以启用新版。
 
 ---
 
-多模型平行问答工作台：一个窗口平行排布多个 AI 平台的官方网页客户端，顶部统一输入框一键同步发送（⌘↩），回答在各平台原生界面中平行展示。
-
-当前内置平台：ChatGPT、DeepSeek、豆包、Kimi、通义千问、文心一言。
+顶部统一输入框一键同步发送（macOS ⌘↩ / Windows Ctrl↩），回答保留各平台的原生界面。
 
 ## 核心设计
 
@@ -35,17 +33,21 @@
 
 用户可从 GitHub 最新稳定 Release 安装：
 
+让 Agent 帮忙安装时，直接复制[对应平台的 Prompt](AGENT_INSTALL_PROMPT.md)；安装器已负责版本查询、下载与校验。
+
 ```sh
 # macOS：从最新稳定 Release 下载、强制校验 SHA-256 后原子安装
 curl -fsSL https://raw.githubusercontent.com/porcelaintech/parallel-workshop/main/install.sh | bash
 ```
 
 ```powershell
-# Windows：固定命令自动获取最新稳定版
-$pwbInstaller = Join-Path $env:TEMP ('ParallelWorkbench-install-' + [Guid]::NewGuid().ToString('N') + '.ps1'); try { & curl.exe --fail --location --silent --show-error --retry 3 --retry-max-time 90 --connect-timeout 10 --max-time 60 'https://github.com/porcelaintech/parallel-workshop/releases/latest/download/install-windows.ps1' --output $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "安装器下载失败（curl 退出码 $LASTEXITCODE）" }; & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "平行工作台安装失败（退出码 $LASTEXITCODE）" } } finally { Remove-Item -LiteralPath $pwbInstaller -Force -ErrorAction SilentlyContinue }
+# Windows：在 PowerShell 中直接执行，自动获取最新稳定版
+$pwbInstaller = Join-Path $env:TEMP ('ParallelWorkbench-install-' + [Guid]::NewGuid().ToString('N') + '.ps1'); try { & curl.exe --fail --location --silent --show-error --retry 3 --retry-max-time 90 --connect-timeout 10 --max-time 60 'https://github.com/porcelaintech/parallel-workshop/releases/latest/download/install-windows.ps1' --output $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "安装器下载失败（curl 退出码 $LASTEXITCODE）" }; & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "智囊安装失败（退出码 $LASTEXITCODE）" } } finally { Remove-Item -LiteralPath $pwbInstaller -Force -ErrorAction SilentlyContinue }
 ```
 
 > 未签名开源分发：install.sh 校验 GitHub 资产摘要后安装并移除隔离属性；正式对外分发仍建议签名公证。npm 包和 Homebrew tap 尚未发布，因此不再宣传对应命令。
+
+安装过程中遇到等待或报错，可按[安装耗时反馈](INSTALL_FEEDBACK.md)提供最后一步输出。
 
 ## 运行（开发者）
 
@@ -142,7 +144,7 @@ bash scripts/package-app.sh   # 生成 build/ParallelWorkbench.app（未签名�
 
 - **双端入口与状态**：顶部固定显示 `Update` 和当前版本；启动、回到前台及每 6 小时自动检查。已是最新版时明确提示；网络超时或服务错误显示原因并支持重试。GitHub API 受限或暂时不可用时使用 Release 的 `update.json` 备用索引。
 - **macOS**：发现新版后点击 `Update`，下载 DMG → 强制校验 SHA-256 → 安装 → 等待旧进程退出 → 重启新版（仓库可通过环境变量 `PWB_REPO` 配置）
-- **Edge 扩展**：Edge Add-ons 渠道使用浏览器原生检查、安装与单次重载；GitHub 侧载渠道精确下载 `edge-extension.zip` 并强校验 SHA-256，随后按提示解压、运行 `install.bat` 并在扩展管理页重新加载
+- **Edge 扩展**：GitHub 侧载渠道精确下载 `edge-extension.zip` 并校验 SHA-256，随后按提示运行新版 `install.bat`。从桌面「智囊」打开时，启动页核对实际运行版本；若 Edge 仍加载旧版，会重新加载本扩展并启用已安装新版。商店渠道由浏览器管理安装与重载
 - **固定安装入口**：macOS `install.sh` 与 Windows `install-windows.ps1` 都从 Latest 稳定 Release 获取版本，不再把版本号写进用户命令
 
 ## 已知限制与后续

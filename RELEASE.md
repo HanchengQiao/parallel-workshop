@@ -1,4 +1,4 @@
-# 发布手册：把「平行工作台」变成即插即用的产品
+# 发布手册：智囊 · Braintrust
 
 目标用户体验：
 
@@ -14,7 +14,7 @@
 1. 注册微软账号 → [Microsoft Partner Center](https://partner.microsoft.com/) → 注册「Microsoft Edge 计划」（个人/公司，需身份验证，可能数天）
 2. 本地准备：`bash scripts/build-edge-extension.sh`（生成用户下载包与 manifest 位于根目录的 `build/edge-extension-store.zip`）
 3. Partner Center 提交扩展包（zip）：
-   - 名称：平行工作台（Parallel Workbench）
+   - 名称：智囊（Braintrust）
    - 简短说明：多模型平行问答：一次提问，ChatGPT/DeepSeek/豆包/Kimi/通义/文心并排回答
    - 详细说明：见 `Windows/edge-extension/STORE_LISTING.md`
    - 隐私政策：扩展不运营自己的中转服务器；问题和附件只发送到用户勾选的第三方 AI 平台，登录态保存在浏览器配置中

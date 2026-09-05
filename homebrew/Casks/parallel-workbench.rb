@@ -1,5 +1,5 @@
 cask "parallel-workbench" do
-  version "0.3.1"
+  version "0.4.0"
   sha256 :no_check
 
   # GitHub 仓库：porcelaintech/parallel-workshop

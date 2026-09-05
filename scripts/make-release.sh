@@ -200,15 +200,16 @@ windows_command = next(
     line.strip() for line in Path('Windows/README.md').read_text().splitlines()
     if 'releases/latest/download/install-windows.ps1' in line
 )
-notes = f'''平行工作台 v{version}
+notes = f'''智囊 · Braintrust v{version}
 
 改进：
-- 顶部固定显示 Update 和当前版本，随时可检查更新。
-- 明确区分「已是最新版」、网络超时与服务错误，检查失败后可点击重试。
-- 启动、回到前台及每 6 小时自动检查新版，短时间重复回前台会合并检查。
-- 增加 update.json 备用更新索引，GitHub API 受限或暂时不可用时仍可查询发布版本与资产摘要。
-- macOS 点击 Update 后下载、校验并安装，等待旧进程退出再重启新版。
-- Edge 侧载版下载并校验新版 ZIP 后，引导解压、运行 install.bat 并重新加载扩展；Edge Add-ons 渠道通过浏览器完成安装和重载。
+- 产品更名为「智囊 · Braintrust」，采用简洁的纯文字标题。
+- 精简 Windows 与 macOS 安装 prompt，直接执行固定的最新版安装命令。
+- Windows 桌面与开始菜单提供「智囊」入口，直接打开工作区。
+- 新启动页显示明确的加载进度，等待 Edge 就绪后进入工作台。
+- 安装更新后核对磁盘版本与实际运行版本，重新加载本扩展并启用新版。
+- Windows 下载优先读取正式发布索引，缩短等待并保留下载校验和失败重试。
+- 保留现有登录数据、模型偏好与 Update 检查入口。
 
 一键安装：
 
@@ -248,7 +249,7 @@ REMOTE_SHA_AFTER_TAG="$(git ls-remote origin "refs/heads/${DEFAULT_BRANCH}" | aw
 
 echo "==> 从已审计资产创建 Draft Release"
 if ! gh release create "$TAG" "$DMG" "$EDGE_ZIP" "$BOOTSTRAP" "$UPDATE_INDEX" \
-  --title "平行工作台 ${VERSION}" --notes-file "$NOTES_FILE" \
+  --title "智囊 · Braintrust ${VERSION}" --notes-file "$NOTES_FILE" \
   --draft --verify-tag -R "$REPO"; then
   echo "❌ Draft Release 创建失败；远程 tag ${TAG} 已存在，请人工检查后恢复"
   exit 1

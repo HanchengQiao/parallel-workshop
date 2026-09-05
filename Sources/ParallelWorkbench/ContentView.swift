@@ -80,10 +80,12 @@ struct ContentView: View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("平行工作台")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    Text("多模型同步工作区")
-                        .font(.system(size: 10.5, weight: .medium))
+                    Text("智囊")
+                        .font(.system(size: 22, weight: .semibold))
+                        .tracking(3)
+                    Text("BRAINTRUST")
+                        .font(.system(size: 9, weight: .medium))
+                        .tracking(1.7)
                         .foregroundStyle(ContentPalette.graphite.opacity(0.58))
                 }
 
