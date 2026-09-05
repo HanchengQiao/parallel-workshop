@@ -34,14 +34,20 @@
   <span id="attach-hint">可拖入文件/图片，或 Ctrl+V 粘贴图片</span>
 </div>
 <div id="controls">
-  <div id="checks"></div>
-  <div id="paging" style="display:none">
-    <button id="page-left" title="上一页窗格">◀</button>
-    <span id="page-ind"></span>
-    <button id="page-right" title="下一页窗格">▶</button>
+  <div id="platform-controls">
+    <div id="checks"></div>
+    <div id="paging" style="display:none">
+      <button id="page-left" title="上一页窗格">◀</button>
+      <span id="page-ind"></span>
+      <button id="page-right" title="下一页窗格">▶</button>
+    </div>
+    <span id="progress"></span>
   </div>
-  <span id="progress"></span>
-  <span id="update-banner" style="display:none"></span>
+  <div id="update-banner" role="group" aria-label="软件更新" data-state="idle">
+    <span id="update-version" title="当前版本"></span>
+    <button id="update-btn" type="button">检查更新 / Check updates</button>
+    <span id="update-status" role="status" aria-live="polite"></span>
+  </div>
 </div>
 <div id="panes"></div>
 <script src="workbench.js"></script>

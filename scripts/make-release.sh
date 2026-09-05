@@ -115,7 +115,7 @@ grep -F 'QA 门禁全部通过' "$SEALED_STAGE/audit/QA.log" > /dev/null
 grep -F 'PASS:' "$SEALED_STAGE/audit/SECRET_SCAN.txt" > /dev/null
 
 python3 - "$ARTIFACTS" "$VERSION" "$SEALED_STAGE/audit/ARTIFACTS_SHA256.txt" <<'PY'
-import json, re, sys, zipfile
+import hashlib, json, re, sys, zipfile
 from pathlib import Path
 root = Path(sys.argv[1])
 version = sys.argv[2]
@@ -126,6 +126,7 @@ expected = {
     'edge-extension.zip',
     'edge-extension-store.zip',
     'install-windows.ps1',
+    'update.json',
 }
 actual = {item.name for item in root.iterdir() if item.is_file()}
 if actual != expected:
@@ -148,6 +149,15 @@ with zipfile.ZipFile(root / 'edge-extension-store.zip') as archive:
     store_manifest = json.loads(archive.read('manifest.json'))
 if store_manifest.get('version') != version or 'key' in store_manifest:
     raise SystemExit('Edge 商店包 manifest 版本/渠道不匹配')
+index = json.loads((root / 'update.json').read_text())
+prefix = f'https://github.com/porcelaintech/parallel-workshop/releases/download/v{version}/'
+if index.get('schemaVersion') != 1 or index.get('version') != version:
+    raise SystemExit('更新索引 schema 或版本不匹配')
+for field, filename in [('dmg', f'ParallelWorkbench-{version}.dmg'), ('edge', 'edge-extension.zip')]:
+    if index.get(field + 'URL') != prefix + filename:
+        raise SystemExit('更新索引 URL 与版本资产不匹配')
+    if index.get(field + 'SHA256') != hashlib.sha256((root / filename).read_bytes()).hexdigest():
+        raise SystemExit('更新索引 SHA256 与封存资产不匹配')
 PY
 
 (cd "$ARTIFACTS" && shasum -a 256 -c ../audit/ARTIFACTS_SHA256.txt)
@@ -177,6 +187,7 @@ fi
 DMG="$ARTIFACTS/ParallelWorkbench-${VERSION}.dmg"
 EDGE_ZIP="$ARTIFACTS/edge-extension.zip"
 BOOTSTRAP="$ARTIFACTS/install-windows.ps1"
+UPDATE_INDEX="$ARTIFACTS/update.json"
 DMG_SHA="$(shasum -a 256 "$DMG" | awk '{print $1}')"
 ZIP_SHA="$(shasum -a 256 "$EDGE_ZIP" | awk '{print $1}')"
 BOOTSTRAP_SHA="$(shasum -a 256 "$BOOTSTRAP" | awk '{print $1}')"
@@ -192,11 +203,12 @@ windows_command = next(
 notes = f'''平行工作台 v{version}
 
 改进：
-- 优化 Windows 下载与安装：固定命令获取最新稳定版，支持限时重试、SHA-256 校验、中文/空格路径与原子替换，取消等待按键的安装环节。
-- 新增豆包，与 ChatGPT、DeepSeek、Kimi、通义千问、文心一言一起进行平行问答。
-- 记住平台选择、分页位置、缩放及 DeepSeek 上次模型；翻页和临时隐藏时保留已打开的页面。
-- 优化启动与尺寸适配：直接打开工作台，按窗口宽度显示 1–3 个窗格。
-- 完善双端更新流程，增加完整下载超时与哈希校验。
+- 顶部固定显示 Update 和当前版本，随时可检查更新。
+- 明确区分「已是最新版」、网络超时与服务错误，检查失败后可点击重试。
+- 启动、回到前台及每 6 小时自动检查新版，短时间重复回前台会合并检查。
+- 增加 update.json 备用更新索引，GitHub API 受限或暂时不可用时仍可查询发布版本与资产摘要。
+- macOS 点击 Update 后下载、校验并安装，等待旧进程退出再重启新版。
+- Edge 侧载版下载并校验新版 ZIP 后，引导解压、运行 install.bat 并重新加载扩展；Edge Add-ons 渠道通过浏览器完成安装和重载。
 
 一键安装：
 
@@ -214,6 +226,7 @@ Windows PowerShell：
 - [ParallelWorkbench-{version}.dmg](https://github.com/{repo}/releases/download/{tag}/ParallelWorkbench-{version}.dmg)
 - [edge-extension.zip](https://github.com/{repo}/releases/download/{tag}/edge-extension.zip)
 - [install-windows.ps1](https://github.com/{repo}/releases/download/{tag}/install-windows.ps1)
+- [update.json](https://github.com/{repo}/releases/download/{tag}/update.json)
 
 SHA256 ParallelWorkbench-{version}.dmg {dmg_sha}
 SHA256 edge-extension.zip {zip_sha}
@@ -234,7 +247,7 @@ REMOTE_SHA_AFTER_TAG="$(git ls-remote origin "refs/heads/${DEFAULT_BRANCH}" | aw
 }
 
 echo "==> 从已审计资产创建 Draft Release"
-if ! gh release create "$TAG" "$DMG" "$EDGE_ZIP" "$BOOTSTRAP" \
+if ! gh release create "$TAG" "$DMG" "$EDGE_ZIP" "$BOOTSTRAP" "$UPDATE_INDEX" \
   --title "平行工作台 ${VERSION}" --notes-file "$NOTES_FILE" \
   --draft --verify-tag -R "$REPO"; then
   echo "❌ Draft Release 创建失败；远程 tag ${TAG} 已存在，请人工检查后恢复"
@@ -247,6 +260,8 @@ REMOTE_TAG_TARGET="$(git ls-remote origin "refs/tags/${TAG}^{}" | awk '{print $1
 DMG_SIZE="$(stat -f %z "$DMG")"
 ZIP_SIZE="$(stat -f %z "$EDGE_ZIP")"
 BOOTSTRAP_SIZE="$(stat -f %z "$BOOTSTRAP")"
+INDEX_SIZE="$(stat -f %z "$UPDATE_INDEX")"
+INDEX_SHA="$(shasum -a 256 "$UPDATE_INDEX" | awk '{print $1}')"
 RELEASE_JSON="build/release-${TAG}.json"
 VERIFIED=0
 for attempt in 1 2 3 4 5; do
@@ -254,7 +269,8 @@ for attempt in 1 2 3 4 5; do
   if python3 - "$RELEASE_JSON" "$TAG" \
       "ParallelWorkbench-${VERSION}.dmg:$DMG_SIZE:$DMG_SHA" \
       "edge-extension.zip:$ZIP_SIZE:$ZIP_SHA" \
-      "install-windows.ps1:$BOOTSTRAP_SIZE:$BOOTSTRAP_SHA" <<'PY'
+      "install-windows.ps1:$BOOTSTRAP_SIZE:$BOOTSTRAP_SHA" \
+      "update.json:$INDEX_SIZE:$INDEX_SHA" <<'PY'
 import json, sys
 data = json.load(open(sys.argv[1]))
 expected_tag = sys.argv[2]
@@ -275,8 +291,8 @@ PY
   fi
   sleep 2
 done
-[ "$VERIFIED" -eq 1 ] || { echo "❌ Draft Release 三项资产的名称/大小/digest 回查失败"; exit 1; }
+[ "$VERIFIED" -eq 1 ] || { echo "❌ Draft Release 资产名称/大小/digest 回查失败"; exit 1; }
 
 gh release view "$TAG" -R "$REPO" --json tagName,isDraft,assets,url \
   --jq '{tag:.tagName,draft:.isDraft,url,assets:[.assets[]|{name,size,digest}]}'
-echo "✅ Draft Release 已创建；正式发布前需再次确认三个资产与固定入口"
+echo "✅ Draft Release 已创建；资产与更新索引摘要核验通过"

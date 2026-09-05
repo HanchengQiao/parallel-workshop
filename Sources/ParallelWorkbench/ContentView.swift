@@ -12,6 +12,7 @@ private typealias ContentPalette = WorkbenchPalette
 
 struct ContentView: View {
     @StateObject private var model = WorkbenchModel()
+    @EnvironmentObject private var updates: UpdateCoordinator
     @StateObject private var voice = VoiceInput()
     @FocusState private var inputFocused: Bool
     @State private var showFilePicker = false
@@ -38,10 +39,10 @@ struct ContentView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 inputFocused = true
             }
-            // 启动后静默检查更新（有新版本时顶栏出现「更新到 vX」）
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                model.checkForUpdates()
-            }
+            updates.startAutomaticChecks()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            updates.checkOnActivation()
         }
         .onChange(of: voice.isRecording) { recording in
             // 开始录音时记录基线，结束后把转写追加到输入框
@@ -88,6 +89,20 @@ struct ContentView: View {
 
                 Spacer()
 
+                Text("v\(updates.currentVersion)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(ContentPalette.graphite.opacity(0.62))
+                Button(action: { updates.primaryAction() }) {
+                    Label(updates.buttonTitle, systemImage: "arrow.down.circle")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .buttonStyle(WorkbenchSoftButtonStyle(tint: ContentPalette.sage,
+                                                     emphasized: updates.availableVersion != nil))
+                .disabled(updates.isBusy || model.sending)
+                .fixedSize()
+                .accessibilityIdentifier("workbench.update")
+                .help("检查 GitHub 最新版本；发现新版后点击即可安装并重启")
+
                 Label("⌘↩ 发送", systemImage: "command")
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(ContentPalette.graphite.opacity(0.62))
@@ -99,6 +114,20 @@ struct ContentView: View {
                             .stroke(ContentPalette.graphite.opacity(0.12))
                             .allowsHitTesting(false)
                     )
+            }
+
+            if !updates.message.isEmpty {
+                HStack {
+                    Text(updates.message)
+                        .font(.caption)
+                        .foregroundStyle(ContentPalette.graphite.opacity(0.75))
+                        .accessibilityIdentifier("workbench.update.status")
+                    Spacer(minLength: 0)
+                    if updates.phase == .failed {
+                        Button("重试") { updates.primaryAction() }
+                            .buttonStyle(WorkbenchTextButtonStyle())
+                    }
+                }
             }
 
             // 主战场：大输入框 + 大发送按钮
@@ -259,22 +288,6 @@ struct ContentView: View {
                 }
 
                 Spacer(minLength: 8)
-
-                // 版本更新区
-                if let v = model.updateAvailable {
-                    Button("更新到 v\(v)") { model.performUpdate() }
-                        .buttonStyle(WorkbenchSoftButtonStyle(tint: ContentPalette.sage, emphasized: true))
-                        .disabled(model.updating)
-                    if !model.updateStatus.isEmpty {
-                        statusPill(model.updateStatus, color: ContentPalette.sage, systemImage: "arrow.down.circle")
-                    }
-                } else {
-                    Button("检查更新") { model.checkForUpdates(manual: true) }
-                        .buttonStyle(WorkbenchTextButtonStyle())
-                    if !model.updateStatus.isEmpty {
-                        statusPill(model.updateStatus, color: ContentPalette.graphite, systemImage: "checkmark.circle")
-                    }
-                }
 
                 if !model.loginProgress.isEmpty {
                     statusPill(model.loginProgress, color: ContentPalette.sage, systemImage: "person.crop.circle.badge.clock")

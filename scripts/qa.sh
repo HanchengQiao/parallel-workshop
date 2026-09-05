@@ -70,6 +70,7 @@ node scripts/deepseek-model-preference-test.mjs || FAIL=1
 node scripts/windows-installer-contract-test.mjs || FAIL=1
 node scripts/windows-device-harness-contract-test.mjs || FAIL=1
 node scripts/release-pipeline-contract-test.mjs || FAIL=1
+node scripts/update-manifest-test.mjs || FAIL=1
 echo "    语法与 JSON 校验通过"
 
 echo "==> 4/4 扩展胶水层 jsdom 冒烟测试"
