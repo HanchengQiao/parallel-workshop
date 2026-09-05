@@ -891,9 +891,53 @@
   // —— 版本更新：商店版交给 Edge 原生更新；侧载版下载精确用户包并给出最短重载路径。——
   const UPDATE_REPO = 'porcelaintech/parallel-workshop';
   const bannerEl = document.getElementById('update-banner');
+  const updateButton = document.getElementById('update-btn');
+  const updateStatusEl = document.getElementById('update-status');
+  const currentVersion = chrome.runtime.getManifest().version;
+  const UPDATE_INTERVAL_MS = 6 * 3600 * 1000;
+  const UPDATE_FOCUS_THROTTLE_MS = 15 * 60 * 1000;
   const isStoreBuild = distributionChannel === 'edge-addons';
+  let updateState = 'idle';
+  let updateTask = null;
+  let availableRelease = null;
+  let storeReadyVersion = null;
+  let retryAction = 'check';
+  let lastUpdateCheckAt = 0;
   let storeUpdateRequested = false;
   let storeReloadScheduled = false;
+  document.getElementById('update-version').textContent = `v${currentVersion}`;
+
+  function releaseVersion(release) {
+    const version = String(release?.tag_name || '').replace(/^v/, '');
+    return /^\d+\.\d+\.\d+(?:\.\d+)?$/.test(version) && !release?.draft && !release?.prerelease
+      ? version : null;
+  }
+
+  function renderUpdate(state, message = '') {
+    updateState = state;
+    bannerEl.dataset.state = state;
+    const busy = ['checking', 'downloading', 'installing', 'reloading'].includes(state);
+    updateButton.disabled = busy;
+    bannerEl.setAttribute('aria-busy', String(busy));
+    const latest = storeReadyVersion || releaseVersion(availableRelease);
+    const labels = {
+      checking: '正在检查…', downloading: '正在下载…', installing: '正在更新…',
+      reloading: '正在重启…', error: '重试 / Retry', downloaded: '再次下载更新'
+    };
+    updateButton.textContent = ['available', 'ready'].includes(state)
+      ? `Update · v${latest}`
+      : (labels[state] || '检查更新 / Check updates');
+    updateButton.title = ['available', 'ready', 'downloaded'].includes(state)
+      ? (isStoreBuild ? '更新并重新加载工作台' : '下载更新包，安装后在 Edge 中重新加载')
+      : '检查 GitHub 最新正式版本';
+    updateStatusEl.textContent = message;
+  }
+
+  function runUpdateTask(task) {
+    if (updateTask || storeReloadScheduled) return updateTask;
+    updateTask = Promise.resolve().then(task).finally(() => { updateTask = null; });
+    return updateTask;
+  }
 
   function isNewer(a, b) {
     const pa = String(a).split('.').map(Number);
@@ -918,21 +962,75 @@
     let lastError;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      let timedOut = false;
+      const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
       try {
         const response = await fetch(url, { signal: controller.signal });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) {
+          const error = new Error(`HTTP ${response.status}`);
+          error.httpStatus = response.status;
+          throw error;
+        }
         // Consume the complete body while the AbortController timer is active;
         // returning a Response here would leave a half-open body unbounded.
         if (responseType === 'blob') return await response.blob();
         return await response.json();
       } catch (error) {
-        lastError = error;
+        lastError = timedOut ? Object.assign(new Error('请求超时'), { name: 'TimeoutError' }) : error;
       } finally {
         clearTimeout(timer);
       }
     }
     throw lastError || new Error('网络请求失败');
+  }
+
+  function updateCheckFailureMessage(error) {
+    if (navigator.onLine === false) return '网络已断开，请联网后重试';
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') return '检查更新超时，请稍后重试';
+    if (error?.httpStatus) return `更新服务暂时不可用（HTTP ${error.httpStatus}），请稍后重试`;
+    if (error?.name === 'TypeError') return '无法连接更新服务，请检查网络后重试';
+    return '更新信息暂时不可用，请稍后重试';
+  }
+
+  function releaseFromUpdateManifest(manifest) {
+    const version = String(manifest?.version || '');
+    const expectedURL = `https://github.com/${UPDATE_REPO}/releases/download/v${version}/edge-extension.zip`;
+    if (manifest?.schemaVersion !== 1 || !/^\d+\.\d+\.\d+(?:\.\d+)?$/.test(version) ||
+        manifest.edgeURL !== expectedURL || !/^[0-9a-f]{64}$/i.test(manifest.edgeSHA256 || '')) {
+      throw new Error('发布更新清单无效');
+    }
+    return {
+      tag_name: `v${version}`,
+      body: typeof manifest.notes === 'string' ? manifest.notes : '',
+      assets: [{
+        name: 'edge-extension.zip',
+        browser_download_url: expectedURL,
+        digest: `sha256:${manifest.edgeSHA256.toLowerCase()}`
+      }]
+    };
+  }
+
+  async function fetchLatestRelease(attempts = 2) {
+    try {
+      const release = await fetchWithRetry(
+        `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`,
+        { attempts, timeoutMs: 15000, responseType: 'json' }
+      );
+      if (!releaseVersion(release)) throw new Error('最新正式版信息无效');
+      return release;
+    } catch (primaryError) {
+      // Release assets do not consume the shared unauthenticated API rate limit.
+      // This official fallback is used only after the API failed, never for "no update".
+      try {
+        const manifest = await fetchWithRetry(
+          `https://github.com/${UPDATE_REPO}/releases/latest/download/update.json`,
+          { attempts: 1, timeoutMs: 15000, responseType: 'json' }
+        );
+        return releaseFromUpdateManifest(manifest);
+      } catch {
+        throw primaryError;
+      }
+    }
   }
 
   function expectedEdgeAssetSHA256(release, asset) {
@@ -953,86 +1051,130 @@
   function reloadForStoreUpdate(version) {
     if (storeReloadScheduled) return;
     storeReloadScheduled = true;
-    bannerEl.style.display = '';
-    bannerEl.textContent = `Edge 已准备 v${version || '新版'}，正在完成更新…`;
+    renderUpdate('reloading', `Edge 已准备 v${version || '新版'}，正在完成更新…`);
     setTimeout(() => chrome.runtime.reload(), 250);
   }
 
   chrome.runtime.onUpdateAvailable?.addListener((details) => {
+    if (!isStoreBuild || storeReloadScheduled) return;
+    storeReadyVersion = /^\d+\.\d+\.\d+(?:\.\d+)?$/.test(details?.version || '')
+      ? details.version : (releaseVersion(availableRelease) || currentVersion);
     if (storeUpdateRequested) {
-      reloadForStoreUpdate(details?.version);
+      reloadForStoreUpdate(storeReadyVersion);
       return;
     }
-    bannerEl.style.display = '';
-    bannerEl.innerHTML = `Edge 已下载 v${details?.version || '新版'} <button id="update-btn">立即完成更新</button>`;
-    document.getElementById('update-btn')?.addEventListener('click', () => reloadForStoreUpdate(details?.version));
+    renderUpdate('ready', 'Edge 已下载更新，点击完成安装');
   });
 
   async function requestStoreUpdate(latest) {
     storeUpdateRequested = true;
-    bannerEl.textContent = '正在通过 Edge 检查并安装更新…';
+    renderUpdate('installing', '正在通过 Edge 检查并安装更新…');
+    let timer;
     try {
-      const result = await chrome.runtime.requestUpdateCheck();
+      const result = await Promise.race([
+        chrome.runtime.requestUpdateCheck(),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Edge 更新检查超时')), 15000); })
+      ]);
+      if (storeReloadScheduled) return;
       if (result?.status === 'update_available') {
         reloadForStoreUpdate(result.version || latest);
       } else {
         storeUpdateRequested = false;
-        bannerEl.textContent = result?.status === 'throttled'
+        retryAction = 'store';
+        renderUpdate('error', result?.status === 'throttled'
           ? 'Edge 正在同步更新，请稍后再试'
-          : 'Edge 商店版本正在同步，请稍后再试';
+          : 'Edge 商店版本正在同步，请稍后再试');
       }
     } catch {
       storeUpdateRequested = false;
-      bannerEl.textContent = 'Edge 更新检查暂时不可用，请稍后再试';
+      if (!storeReloadScheduled) {
+        retryAction = 'store';
+        renderUpdate('error', 'Edge 更新检查暂时不可用，请稍后再试');
+      }
+    } finally {
+      clearTimeout(timer);
     }
   }
 
-  async function checkUpdate() {
+  async function downloadUpdate() {
+    renderUpdate('downloading', '正在下载新版本并校验…');
     try {
-      const rel = await fetchWithRetry(
-        `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`,
-        { attempts: 2, timeoutMs: 15000, responseType: 'json' }
-      );
-      const latest = String(rel.tag_name || '').replace(/^v/, '');
-      const current = chrome.runtime.getManifest().version;
-      if (!latest || !isNewer(latest, current)) return;
-      bannerEl.style.display = '';
-      bannerEl.innerHTML = `🆕 新版本 v${latest} 已发布 <button id="update-btn">${isStoreBuild ? '立即更新' : '下载更新'}</button>`;
-      document.getElementById('update-btn').addEventListener('click', async () => {
-        if (isStoreBuild) {
-          await requestStoreUpdate(latest);
-          return;
-        }
-        bannerEl.innerHTML = '正在下载新版本…';
-        try {
-          const zrel = await fetchWithRetry(
-            `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`,
-            { attempts: 3, timeoutMs: 15000, responseType: 'json' }
-          );
-          const asset = selectEdgeUpdateAsset(zrel.assets);
-          if (!asset) throw new Error('Release 缺少 edge-extension.zip');
-          const expectedSHA256 = expectedEdgeAssetSHA256(zrel, asset);
-          if (!expectedSHA256) throw new Error('Release 缺少有效 SHA-256');
-          const blob = await fetchWithRetry(asset.browser_download_url, {
-            attempts: 3,
-            timeoutMs: 60000,
-            responseType: 'blob'
-          });
-          const actualSHA256 = await sha256Hex(await blob.arrayBuffer());
-          if (actualSHA256 !== expectedSHA256) throw new Error('更新包 SHA-256 不匹配');
-          const a = document.createElement('a');
-          const objectURL = URL.createObjectURL(blob);
-          a.href = objectURL;
-          a.download = asset.name;
-          a.click();
-          setTimeout(() => URL.revokeObjectURL(objectURL), 60000);
-          bannerEl.innerHTML = `${asset.name} 已下载并通过 SHA-256 校验：①解压并双击 install.bat ②在 edge://extensions 点「重新加载」`;
-        } catch (e) {
-          bannerEl.innerHTML = '下载失败，请稍后重试或到 GitHub Releases 手动下载';
-        }
+      const zrel = await fetchLatestRelease(3);
+      const latest = releaseVersion(zrel);
+      if (!latest || !isNewer(latest, currentVersion)) throw new Error('没有可安装的新版正式包');
+      const asset = selectEdgeUpdateAsset(zrel.assets);
+      if (!asset) throw new Error('Release 缺少 edge-extension.zip');
+      const expectedSHA256 = expectedEdgeAssetSHA256(zrel, asset);
+      if (!expectedSHA256) throw new Error('Release 缺少有效 SHA-256');
+      const blob = await fetchWithRetry(asset.browser_download_url, {
+        attempts: 3,
+        timeoutMs: 60000,
+        responseType: 'blob'
       });
-    } catch {}
+      const actualSHA256 = await sha256Hex(await blob.arrayBuffer());
+      if (actualSHA256 !== expectedSHA256) throw new Error('更新包 SHA-256 不匹配');
+      const a = document.createElement('a');
+      const objectURL = URL.createObjectURL(blob);
+      a.href = objectURL;
+      a.download = asset.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(objectURL), 60000);
+      availableRelease = zrel;
+      renderUpdate('downloaded', `v${latest} 已下载并校验。解压 → 双击 install.bat → 在 edge://extensions 点「重新加载」。`);
+    } catch (error) {
+      retryAction = 'download';
+      renderUpdate('error', '下载失败，请重试。未安装任何文件。');
+      console.warn('更新包下载失败', error);
+    }
   }
+
+  function checkUpdate({ automatic = false } = {}) {
+    if (storeReadyVersion || storeReloadScheduled || updateTask) return updateTask;
+    if (automatic && lastUpdateCheckAt && Date.now() - lastUpdateCheckAt < UPDATE_FOCUS_THROTTLE_MS) return;
+    lastUpdateCheckAt = Date.now();
+    return runUpdateTask(async () => {
+      renderUpdate('checking', '正在检查最新版本…');
+      try {
+        const rel = await fetchLatestRelease();
+        if (storeReadyVersion || storeReloadScheduled) return;
+        const latest = releaseVersion(rel);
+        if (!latest) throw new Error('最新正式版信息无效');
+        availableRelease = isNewer(latest, currentVersion) ? rel : null;
+        if (availableRelease) {
+          renderUpdate('available', isStoreBuild
+            ? '发现新版本，点击通过 Edge 更新'
+            : '发现新版本，点击下载更新');
+        } else {
+          renderUpdate('current', '已是最新版');
+        }
+      } catch (error) {
+        if (!storeReadyVersion && !storeReloadScheduled) {
+          retryAction = 'check';
+          renderUpdate('error', updateCheckFailureMessage(error));
+        }
+      }
+    });
+  }
+
+  updateButton.addEventListener('click', () => {
+    if (storeReloadScheduled) return;
+    if (storeReadyVersion) { reloadForStoreUpdate(storeReadyVersion); return; }
+    if (updateTask) return;
+    if (['available', 'downloaded'].includes(updateState) || (updateState === 'error' && retryAction !== 'check')) {
+      runUpdateTask(() => isStoreBuild
+        ? requestStoreUpdate(releaseVersion(availableRelease))
+        : downloadUpdate());
+    } else {
+      checkUpdate();
+    }
+  });
+
+  function checkUpdateOnForeground() {
+    if (document.visibilityState === 'visible') checkUpdate({ automatic: true });
+  }
+  window.addEventListener('focus', checkUpdateOnForeground);
+  document.addEventListener('visibilitychange', checkUpdateOnForeground);
+  renderUpdate('idle');
 
   // —— 启动：立即显示品牌加载层；完成本地初始化后淡出，不做人为延迟。——
   const startupOverlay = document.getElementById('startup-overlay');
@@ -1049,8 +1191,8 @@
     }
     setInterval(probeAll, 8000);
     setTimeout(probeAll, 3000);
-    setTimeout(checkUpdate, 5000);
-    setInterval(checkUpdate, 6 * 3600 * 1000);
+    setTimeout(() => checkUpdate({ automatic: true }), 5000);
+    setInterval(() => checkUpdate({ automatic: true }), UPDATE_INTERVAL_MS);
     requestAnimationFrame(() => {
       startupOverlay?.classList.add('done');
       setTimeout(() => startupOverlay?.remove(), 260);

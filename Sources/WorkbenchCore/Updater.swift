@@ -3,7 +3,7 @@ import CryptoKit
 
 /// 版本更新：查询 GitHub Releases 最新版并一键更新。
 /// 安全设计（开源未签名分发模型）：
-/// 1. 下载后若 Release Notes 含该资产的 SHA256 行则强校验（防传输/供应链篡改）；
+/// 1. 下载必须具有有效 SHA256 并通过强校验；
 /// 2. 新应用先落地到 /Applications 内临时名，校验 Bundle ID 后再原子换名（mv 同卷原子），
 ///    任何一步失败都回滚恢复旧版本，绝不出现「旧版已删、新版未装」；
 /// 3. 每个子进程检查退出码，非零即视为失败；
@@ -14,6 +14,43 @@ public enum Updater {
         public let dmgURL: String?
         public let notes: String?
         public let dmgSHA256: String?
+
+        public init(version: String, dmgURL: String?, notes: String?, dmgSHA256: String?) {
+            self.version = version
+            self.dmgURL = dmgURL
+            self.notes = notes
+            self.dmgSHA256 = dmgSHA256
+        }
+    }
+
+    public enum UpdateError: LocalizedError, Equatable {
+        case invalidRepository
+        case invalidRelease
+        case unsupportedRelease
+        case missingAsset
+        case invalidChecksum
+        case httpStatus(Int)
+        case timedOut
+        case network(String)
+        case invalidApplication
+        case relaunchFailed(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case .invalidRepository: return "更新仓库地址无效"
+            case .invalidRelease: return "更新信息格式或版本号无效"
+            case .unsupportedRelease: return "更新渠道返回了草稿或预发布版本"
+            case .missingAsset: return "此版本缺少有效的 macOS 安装包"
+            case .invalidChecksum: return "更新缺少有效 SHA-256，已中止"
+            case .httpStatus(403), .httpStatus(429): return "更新服务暂时限制请求，请稍后重试"
+            case .httpStatus(404): return "更新版本尚未发布"
+            case .httpStatus(let status): return "更新服务返回错误（HTTP \(status)）"
+            case .timedOut: return "连接更新服务超时，请检查网络后重试"
+            case .network(let detail): return "无法连接更新服务：\(detail)"
+            case .invalidApplication: return "新版本应用路径无效，无法重新启动"
+            case .relaunchFailed(let detail): return "无法准备重新启动：\(detail)"
+            }
+        }
     }
 
     /// 仓库配置：环境变量 PWB_REPO 优先
@@ -34,30 +71,169 @@ public enum Updater {
 
     /// 拉取 GitHub Releases 最新版信息
     public static func fetchLatest() async -> Release? {
-        let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!
-        var req = URLRequest(url: url)
+        try? await fetchLatestRelease()
+    }
+
+    /// API 上限 15 秒、临时错误最多重试一次；限流或网络故障时，正式发布索引最多再等待 15 秒。
+    public static func fetchLatestRelease() async throws -> Release {
+        guard repo.range(of: #"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"#, options: .regularExpression) != nil,
+              let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else {
+            throw UpdateError.invalidRepository
+        }
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         req.setValue("ParallelWorkbench/\(currentVersion)", forHTTPHeaderField: "User-Agent")
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tag = json["tag_name"] as? String else { return nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForResource = 15
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let fallbackURL = URL(string: "https://github.com/\(repo)/releases/latest/download/update.json")!
+        return try await fetchLatestReleaseWithFallback(session: session, request: req, fallbackURL: fallbackURL)
+    }
+
+    static func fetchLatestReleaseWithFallback(session: URLSession, request: URLRequest, fallbackURL: URL) async throws -> Release {
+        do { return try await fetchLatestRelease(session: session, request: request) }
+        catch {
+            let primaryError = error
+            guard shouldUseFallback(after: error) else { throw error }
+            do {
+                return try await withThrowingTaskGroup(of: Release.self) { group in
+                    group.addTask {
+                        var request = URLRequest(url: fallbackURL, cachePolicy: .reloadIgnoringLocalCacheData)
+                        request.timeoutInterval = 15
+                        request.setValue("ParallelWorkbench/\(currentVersion)", forHTTPHeaderField: "User-Agent")
+                        let (data, response) = try await session.data(for: request)
+                        guard let response = response as? HTTPURLResponse, (200...299).contains(response.statusCode) else {
+                            throw UpdateError.httpStatus((response as? HTTPURLResponse)?.statusCode ?? 0)
+                        }
+                        return try parseUpdateIndex(data)
+                    }
+                    group.addTask {
+                        try await Task.sleep(nanoseconds: 15_000_000_000)
+                        throw UpdateError.timedOut
+                    }
+                    defer { group.cancelAll() }
+                    guard let release = try await group.next() else { throw UpdateError.invalidRelease }
+                    return release
+                }
+            } catch {
+                if error is CancellationError || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+                // 旧发布可能没有备用索引；保留主要错误，不能把索引 404 误报成“没有更新”。
+                throw primaryError
+            }
+        }
+    }
+
+    private static func shouldUseFallback(after error: Error) -> Bool {
+        guard let error = error as? UpdateError else { return false }
+        switch error {
+        case .httpStatus(let status): return status == 403 || status == 429 || (500...599).contains(status)
+        case .timedOut, .network: return true
+        default: return false
+        }
+    }
+
+    /// 与 DMG 一同发布的免 API 限流索引；仅接受本仓库正式版本的 HTTPS 资产和有效 SHA。
+    static func parseUpdateIndex(_ data: Data) throws -> Release {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              json["schemaVersion"] as? Int == 1,
+              let version = json["version"] as? String, versionComponents(version) != nil else {
+            throw UpdateError.invalidRelease
+        }
+        guard let value = json["dmgURL"] as? String, let url = validAssetURL(value),
+              url.lastPathComponent == "ParallelWorkbench-\(version).dmg",
+              [version, "v\(version)"].contains(url.deletingLastPathComponent().lastPathComponent) else {
+            throw UpdateError.missingAsset
+        }
+        guard let digest = normalizedSHA256(json["dmgSHA256"] as? String) else { throw UpdateError.invalidChecksum }
+        return Release(version: version, dmgURL: value, notes: json["notes"] as? String, dmgSHA256: digest)
+    }
+
+    static func fetchLatestRelease(session: URLSession, request: URLRequest) async throws -> Release {
+        try await withThrowingTaskGroup(of: Release.self) { group in
+            group.addTask { try await fetchLatestWithRetries(session: session, request: request) }
+            group.addTask {
+                try await Task.sleep(nanoseconds: 15_000_000_000)
+                throw UpdateError.timedOut
+            }
+            defer { group.cancelAll() }
+            guard let release = try await group.next() else { throw UpdateError.invalidRelease }
+            return release
+        }
+    }
+
+    private static func fetchLatestWithRetries(session: URLSession, request: URLRequest) async throws -> Release {
+        let deadline = Date().addingTimeInterval(15)
+        for attempt in 0..<2 {
+            do {
+                var request = request
+                let remaining = deadline.timeIntervalSinceNow
+                guard remaining > 0 else { throw UpdateError.timedOut }
+                request.timeoutInterval = remaining
+                let (data, response) = try await session.data(for: request)
+                guard let response = response as? HTTPURLResponse else { throw UpdateError.invalidRelease }
+                guard (200...299).contains(response.statusCode) else {
+                    throw UpdateError.httpStatus(response.statusCode)
+                }
+                return try parseLatestRelease(data)
+            } catch {
+                if error is CancellationError || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+                if attempt == 0 && deadline.timeIntervalSinceNow > 0 && isRetryable(error) { continue }
+                if let error = error as? UpdateError { throw error }
+                if (error as? URLError)?.code == .timedOut { throw UpdateError.timedOut }
+                throw UpdateError.network(error.localizedDescription)
+            }
+        }
+        throw UpdateError.timedOut
+    }
+
+    private static func isRetryable(_ error: Error) -> Bool {
+        if case UpdateError.httpStatus(let status) = error { return status == 408 || (500...599).contains(status) }
+        guard let code = (error as? URLError)?.code else { return false }
+        return [.timedOut, .networkConnectionLost, .cannotConnectToHost, .dnsLookupFailed].contains(code)
+    }
+
+    static func parseLatestRelease(_ data: Data) throws -> Release {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tag = json["tag_name"] as? String else { throw UpdateError.invalidRelease }
+        guard json["draft"] as? Bool == false, json["prerelease"] as? Bool == false else {
+            throw UpdateError.unsupportedRelease
+        }
         let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+        guard versionComponents(version) != nil else { throw UpdateError.invalidRelease }
         let notes = json["body"] as? String
         let assets = json["assets"] as? [[String: Any]] ?? []
         let expectedName = "ParallelWorkbench-\(version).dmg"
         let dmgAsset = assets.first(where: { ($0["name"] as? String) == expectedName })
-        let dmg = dmgAsset?["browser_download_url"] as? String
-        let apiDigest = (dmgAsset?["digest"] as? String)?.replacingOccurrences(of: "sha256:", with: "")
+        guard let dmg = dmgAsset?["browser_download_url"] as? String,
+              let url = validAssetURL(dmg), url.lastPathComponent == expectedName else { throw UpdateError.missingAsset }
+        let rawDigest = dmgAsset?["digest"] as? String
+        let apiDigest = rawDigest?.hasPrefix("sha256:") == true ? String(rawDigest!.dropFirst(7)) : nil
         let digest = normalizedSHA256(apiDigest) ?? normalizedSHA256(expectedSHA256(assetName: expectedName, notes: notes))
+        guard digest != nil else { throw UpdateError.invalidChecksum }
         return Release(version: version, dmgURL: dmg, notes: notes, dmgSHA256: digest)
+    }
+
+    static func validAssetURL(_ value: String) -> URL? {
+        guard let url = URL(string: value), url.scheme == "https", url.host == "github.com",
+              url.user == nil, url.password == nil, url.port == nil, url.query == nil, url.fragment == nil,
+              url.path.hasPrefix("/\(repo)/releases/download/"),
+              url.pathComponents.count == 7,
+              versionFromDMGAssetName(url.lastPathComponent) != nil else { return nil }
+        return url
+    }
+
+    private static func versionComponents(_ version: String) -> [Int]? {
+        let parts = version.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts.allSatisfy({ !$0.isEmpty && $0.utf8.allSatisfy({ (48...57).contains($0) }) }) else { return nil }
+        let values = parts.compactMap { Int($0) }
+        return values.count == 3 ? values : nil
     }
 
     /// 简单语义版本比较：latest 是否高于 current
     public static func isNewer(_ latest: String, than current: String) -> Bool {
-        let a = latest.split(separator: ".").compactMap { Int($0) }
-        let b = current.split(separator: ".").compactMap { Int($0) }
-        guard !a.isEmpty, !b.isEmpty else { return latest != current }
+        guard let a = versionComponents(latest), let b = versionComponents(current) else { return false }
         for i in 0..<max(a.count, b.count) {
             let av = i < a.count ? a[i] : 0
             let bv = i < b.count ? b[i] : 0
@@ -90,8 +266,7 @@ public enum Updater {
         let suffix = ".dmg"
         guard name.hasPrefix(prefix), name.hasSuffix(suffix) else { return nil }
         let version = String(name.dropFirst(prefix.count).dropLast(suffix.count))
-        let parts = version.split(separator: ".")
-        guard parts.count == 3, parts.allSatisfy({ Int($0) != nil }) else { return nil }
+        guard versionComponents(version) != nil else { return nil }
         return version
     }
 
@@ -108,7 +283,10 @@ public enum Updater {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("pwb-update-\(UUID().uuidString).dmg")
         defer { try? FileManager.default.removeItem(at: tmp) }
-        guard let url = URL(string: dmgURL) else { return false }
+        guard let url = validAssetURL(dmgURL) else {
+            progress("更新失败：安装包下载地址无效")
+            return false
+        }
         let assetName = url.lastPathComponent
         guard let expected = normalizedSHA256(expectedSHA256) ??
                 normalizedSHA256(Self.expectedSHA256(assetName: assetName, notes: notes)) else {
@@ -116,15 +294,28 @@ public enum Updater {
             return false
         }
         do {
-            let (data, resp) = try await URLSession.shared.data(from: url)
-            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return false }
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.timeoutIntervalForRequest = 30
+            configuration.timeoutIntervalForResource = 180
+            let session = URLSession(configuration: configuration)
+            defer { session.invalidateAndCancel() }
+            let (download, resp) = try await session.download(from: url)
+            defer { try? FileManager.default.removeItem(at: download) }
+            guard let response = resp as? HTTPURLResponse, (200...299).contains(response.statusCode) else {
+                throw UpdateError.httpStatus((resp as? HTTPURLResponse)?.statusCode ?? 0)
+            }
+            let data = try Data(contentsOf: download, options: .mappedIfSafe)
             let actual = sha256Hex(of: data)
             guard actual.lowercased() == expected else {
                 progress("校验失败：下载文件哈希不匹配，已中止")
                 return false
             }
             try data.write(to: tmp)
-        } catch { return false }
+        } catch {
+            let detail = (error as? URLError)?.code == .timedOut ? UpdateError.timedOut.localizedDescription : error.localizedDescription
+            progress("下载失败：\(detail)，旧版本保留")
+            return false
+        }
 
         progress("正在安装…")
         // 1) 挂载
@@ -134,12 +325,18 @@ public enum Updater {
                     let s = String(line)
                     guard s.contains("/Volumes/") else { return nil }
                     return s.components(separatedBy: "\t").last?.trimmingCharacters(in: .whitespaces)
-                }).first else { return false }
+                }).first else {
+            progress("安装失败：无法打开安装镜像，旧版本保留")
+            return false
+        }
         defer { _ = run("/usr/bin/hdiutil", ["detach", mount]) }
 
         // 2) 定位镜像内应用
         let srcs = [mount + "/ParallelWorkbench.app", mount + "/平行工作台.app"]
-        guard let src = srcs.first(where: { FileManager.default.fileExists(atPath: $0) }) else { return false }
+        guard let src = srcs.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
+            progress("安装失败：镜像内未找到应用，旧版本保留")
+            return false
+        }
 
         // 3) 校验新应用身份（Bundle ID 必须一致，防止装错包）
         let newInfoPlist = src + "/Contents/Info.plist"
@@ -180,6 +377,12 @@ public enum Updater {
             _ = run("/bin/rm", ["-rf", staged])
             return false
         }
+        // 替换前完成启动准备，失败时绝不触碰现有应用。
+        guard run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", staged]) != nil else {
+            _ = run("/bin/rm", ["-rf", staged])
+            progress("安装失败：无法准备新版本启动，旧版本保留")
+            return false
+        }
         // 同卷 replaceItemAt：替换失败时系统保留原目标，并生成可回滚备份。
         if hadOld {
             _ = run("/bin/rm", ["-rf", backup])
@@ -188,11 +391,17 @@ public enum Updater {
                     URL(fileURLWithPath: dest),
                     withItemAt: URL(fileURLWithPath: staged),
                     backupItemName: URL(fileURLWithPath: backup).lastPathComponent,
-                    options: []
+                    options: [.withoutDeletingBackupItem]
                 )
             } catch {
                 _ = run("/bin/rm", ["-rf", staged])
-                progress("安装失败：原版本保持不变")
+                if !FileManager.default.fileExists(atPath: dest), FileManager.default.fileExists(atPath: backup) {
+                    guard run("/bin/mv", [backup, dest]) != nil else {
+                        progress("安装失败：旧版本保留在 \(backup)")
+                        return false
+                    }
+                }
+                progress("安装失败：旧版本保留")
                 return false
             }
         } else {
@@ -204,8 +413,6 @@ public enum Updater {
         }
         if hadOld { _ = run("/bin/rm", ["-rf", backup]) }
 
-        // 5) 去隔离（未签名应用启动必要步骤）
-        _ = run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", dest])
         progress("更新完成")
         return true
     }

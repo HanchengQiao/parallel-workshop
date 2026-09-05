@@ -204,60 +204,6 @@ final class WorkbenchModel: ObservableObject {
         attachments.map { ["name": $0.name, "mime": $0.mime, "data": $0.data] }
     }
 
-    /// 发现新版本时非空（值为版本号）
-    @Published var updateAvailable: String? = nil
-    @Published var updateStatus: String = ""
-    @Published var updating = false
-
-    /// 启动时自动检查（失败静默；手动检查会提示结果）
-    func checkForUpdates(manual: Bool = false) {
-        Task {
-            if let rel = await Updater.fetchLatest() {
-                await MainActor.run {
-                    if Updater.isNewer(rel.version, than: Updater.currentVersion) {
-                        updateAvailable = rel.version
-                        updateStatus = "发现新版本 v\(rel.version)"
-                    } else if manual {
-                        statusText = "已是最新版本（v\(Updater.currentVersion)）"
-                    }
-                }
-            } else if manual {
-                await MainActor.run {
-                    statusText = "检查更新失败（仓库未发布或网络不可达）"
-                }
-            }
-        }
-    }
-
-    /// 一键更新：下载 → 覆盖安装 → 去隔离 → 重启到新版
-    func performUpdate() {
-        guard !updating else { return }
-        updating = true
-        updateStatus = "准备更新…"
-        Task {
-            guard let rel = await Updater.fetchLatest(), let dmg = rel.dmgURL else {
-                await MainActor.run {
-                    updating = false
-                    updateStatus = "获取更新信息失败"
-                }
-                return
-            }
-            let ok = await Updater.install(dmgURL: dmg, expectedSHA256: rel.dmgSHA256, notes: rel.notes) { msg in
-                Task { @MainActor in self.updateStatus = msg }
-            }
-            await MainActor.run {
-                updating = false
-                if ok {
-                    updateStatus = "更新完成，正在重启…"
-                    NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/ParallelWorkbench.app"))
-                    NSApp.terminate(nil)
-                } else {
-                    updateStatus = "更新失败，请稍后重试"
-                }
-            }
-        }
-    }
-
     func send() {
         guard !sending else { return }
         let text = question.trimmingCharacters(in: .whitespacesAndNewlines)

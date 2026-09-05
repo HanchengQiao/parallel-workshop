@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "平行工作台",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "多模型平行问答工作台：统一输入一键同步发送到多个 AI 平台（Edge/Chrome）",
   "icons": {
     "16": "icons/16.png",

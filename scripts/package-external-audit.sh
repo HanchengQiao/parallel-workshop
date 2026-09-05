@@ -72,6 +72,7 @@ APP_ZIP="$(pwd)/$STAGE/artifacts/ParallelWorkbench.app.zip"
 cp "build/ParallelWorkbench-${VERSION}.dmg" "$STAGE/artifacts/"
 cp build/edge-extension.zip build/edge-extension-store.zip "$STAGE/artifacts/"
 cp install-windows.ps1 "$STAGE/artifacts/"
+node scripts/generate-update-manifest.mjs "$VERSION" "$STAGE/artifacts/"
 
 if [ -n "$(git status --porcelain)" ]; then
   echo "❌ 构建改写了受版本控制的文件，拒绝打包"
@@ -159,7 +160,7 @@ manifest 当前版本字段为 \`${VERSION}\`；请以 commit 与 SHA-256 清单
 ## 目录
 
 - \`source/\`：由 \`git archive ${COMMIT}\` 导出的全部 ${TRACKED_COUNT} 个受版本控制文件。
-- \`artifacts/\`：macOS App ZIP、DMG、Edge 用户侧载 ZIP、Edge 商店 ZIP、Windows Latest 引导器。
+- \`artifacts/\`：macOS App ZIP、DMG、Edge 用户侧载 ZIP、Edge 商店 ZIP、Windows Latest 引导器、备用更新索引。
 - \`audit/\`：来源、跟踪文件列表、源码/产物 SHA-256、QA、构建与完整性验证日志。
 
 ## 重要边界
