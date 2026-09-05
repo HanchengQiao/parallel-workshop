@@ -1,4 +1,4 @@
-// Edge 扩展端到端测试（macOS 上的 Edge 真机验证，与 Windows 行为一致）
+// Edge 扩展端到端测试（macOS 上验证共享浏览器行为；Windows 安装链路另由 Windows CI 覆盖）
 // 前置：Edge 以调试模式运行并加载扩展：
 //   pkill -f wb-edge-live; rm -rf /tmp/wb-edge-live
 //   "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" \
@@ -79,7 +79,15 @@ for (const [width, expected] of [[640, 1], [900, 2], [1440, 3]]) {
     deviceScaleFactor: 1,
     mobile: false
   });
-  await sleep(200);
+  // Six remote pages can delay the next animation frame during cold startup.
+  // Wait for the actual layout result, with a bounded deadline, before measuring.
+  const resizeDeadline = Date.now() + 5000;
+  while (Date.now() < resizeDeadline) {
+    const visible = await cdp(page.webSocketDebuggerUrl,
+      `document.querySelectorAll('.pane:not(.offscreen)').length`);
+    if (visible === expected) break;
+    await sleep(100);
+  }
   const result = JSON.parse(await cdp(page.webSocketDebuggerUrl, `JSON.stringify({
     width: document.documentElement.clientWidth,
     bodyWidth: document.body.getBoundingClientRect().width,
