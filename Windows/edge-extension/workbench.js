@@ -1098,8 +1098,10 @@
         const entryURLs = [chrome.runtime.getURL('workbench.html'), chrome.runtime.getURL('launch.html')];
         const tabIds = contexts.filter(context => context.frameId === 0 && entryURLs.includes(context.documentUrl))
           .map(context => context.tabId).filter(Number.isInteger).slice(0, 30);
+        const workbenchTabIds = contexts.filter(context => context.frameId === 0 && context.documentUrl === entryURLs[0])
+          .map(context => context.tabId).filter(id => tabIds.includes(id));
         await chrome.storage.local.set({ 'wb-pending-extension-reload': {
-          tabId: tab.id, tabIds, version, createdAt: Date.now()
+          tabId: tab.id, tabIds, workbenchTabIds, version, createdAt: Date.now()
         } });
         chrome.runtime.reload();
       } catch {

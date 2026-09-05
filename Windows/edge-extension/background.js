@@ -120,17 +120,32 @@ const reloadRecovery = (async () => {
   const entries = await workbenchEntries();
   const tabIds = [...new Set([pending.tabId, ...(Array.isArray(pending.tabIds) ? pending.tabIds : [])])]
     .filter(Number.isInteger).slice(0, 30);
+  const previousWorkbenchIds = new Set((Array.isArray(pending.workbenchTabIds)
+    ? pending.workbenchTabIds : tabIds.filter(id => id !== pending.tabId)).filter(id => tabIds.includes(id)));
+  // Restore and reserve the user's original workbench before any launcher is
+  // allowed to become a new one. A resolved tabs.update does not mean its new
+  // document is already visible to getContexts.
+  const restorationOrder = [...tabIds.filter(id => previousWorkbenchIds.has(id)),
+    ...tabIds.filter(id => !previousWorkbenchIds.has(id))];
   let restored = false;
-  for (const tabId of tabIds) {
+  let restoredLauncher = false;
+  for (const tabId of restorationOrder) {
     let tab;
     try { tab = await chrome.tabs.get(tabId); } catch { continue; }
     if (!tab || !await canRestoreReloadTab(tab, entries)) continue;
     // Edge changes extension pages into its new-tab page during runtime.reload.
     // Restore only the IDs recorded before reload, and never a user-navigated site.
-    await chrome.tabs.update(tabId, { url: tabId === pending.tabId ? LAUNCH_URL : WORKBENCH_URL, active: tabId === pending.tabId });
+    const restoreAsWorkbench = previousWorkbenchIds.has(tabId) && tabId !== pending.tabId;
+    if (restoreAsWorkbench && !pendingWorkbenchNavigation) {
+      pendingWorkbenchNavigation = { id: tabId, createdAt: Date.now() };
+    }
+    await chrome.tabs.update(tabId, { url: restoreAsWorkbench ? WORKBENCH_URL : LAUNCH_URL, active: tabId === pending.tabId });
+    if (!restoreAsWorkbench) restoredLauncher = true;
     restored = true;
   }
+  if (pendingWorkbenchNavigation) pendingWorkbenchNavigation.createdAt = Date.now();
   if (!restored) await openWorkbenchFromAction();
+  else if (!restoredLauncher) await chrome.storage.local.remove(RELOAD_PENDING_KEY);
   return true;
 })().catch(() => false);
 
@@ -276,7 +291,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           Date.now() - (pendingWorkbenchNavigation?.createdAt || 0) < 5000) {
         try {
           const tab = await chrome.tabs.get(pendingWorkbenchNavigation.id);
-          if (tab && (entries.some(entry => entry.id === tab.id) || !tab.url)) existing = tab;
+          if (tab && entries.some(entry => entry.id === tab.id)) {
+            existing = tab;
+          } else if (tab) {
+            const frames = await chrome.webNavigation.getAllFrames({ tabId: tab.id });
+            const topURL = (frames || []).find(frame => frame.frameId === 0)?.url || tab.pendingUrl || tab.url;
+            if (!topURL || [WORKBENCH_URL, LAUNCH_URL].includes(topURL) || isReloadLandingURL(topURL)) existing = tab;
+          }
         } catch { pendingWorkbenchNavigation = null; }
       }
       await chrome.storage.local.remove(RELOAD_PENDING_KEY);

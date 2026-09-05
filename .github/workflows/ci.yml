@@ -72,11 +72,13 @@ jobs:
   windows-installer:
     runs-on: windows-latest
     timeout-minutes: 10
+    env:
+      PWB_TEST_INSTALL_RELATIVE: 测试 用户\Parallel Workbench
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: '22'
+          node-version: '24'
       - name: Parse scripts with Windows PowerShell 5.1
         shell: powershell
         run: |
@@ -151,7 +153,7 @@ jobs:
       - name: Verify fast installer in non-ASCII and spaced path
         shell: powershell
         run: |
-          $target = Join-Path $env:RUNNER_TEMP '测试 用户\Parallel Workbench'
+          $target = Join-Path $env:RUNNER_TEMP $env:PWB_TEST_INSTALL_RELATIVE
           $verifyTarget = Join-Path $env:RUNNER_TEMP 'verify must stay absent'
           .\install-windows.ps1 -ArchivePath "$env:RUNNER_TEMP\edge-extension.zip" -InstallRoot $verifyTarget -NoLaunch -NoShortcuts -NoClipboard -VerifyOnly
           if (Test-Path $verifyTarget) { throw 'VerifyOnly unexpectedly wrote to InstallRoot' }
@@ -173,7 +175,7 @@ jobs:
       - name: Verify idempotent reinstall and source-in-target update
         shell: powershell
         run: |
-          $target = Join-Path $env:RUNNER_TEMP '测试 用户\Parallel Workbench'
+          $target = Join-Path $env:RUNNER_TEMP $env:PWB_TEST_INSTALL_RELATIVE
           $source = Join-Path $target 'edge-extension'
           Push-Location $source
           try {
@@ -208,14 +210,19 @@ jobs:
         run: |
           git fetch origin tag v0.3.1 --depth=1
           if ($LASTEXITCODE -ne 0) { throw 'Could not fetch the actual published v0.3.1 upgrade fixture' }
-          $installed = Join-Path $env:RUNNER_TEMP '测试 用户\Parallel Workbench\edge-extension'
+          $installed = Join-Path (Join-Path $env:RUNNER_TEMP $env:PWB_TEST_INSTALL_RELATIVE) 'edge-extension'
           $launch = & (Join-Path $installed 'launch.ps1') -PrintOnly | ConvertFrom-Json
           $env:PWB_EDGE_BINARY = $launch.EdgePath
           $env:PWB_EDGE_SOURCE = $installed
           $env:PWB_EDGE_START_URL = $launch.StartURL
           $env:PWB_EDGE_EVIDENCE = Join-Path $env:GITHUB_WORKSPACE 'build\windows-edge-live'
           node scripts/edge-launch-refresh-live-test.mjs
-          if ($LASTEXITCODE -ne 0) { throw "Real Windows Edge launch failed: $LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) {
+            $nodeExit = $LASTEXITCODE
+            Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000; StartTime = (Get-Date).AddMinutes(-5) } -ErrorAction SilentlyContinue |
+              Where-Object { $_.Message -match '\bnode\.exe\b' } | Select-Object -First 2 | ForEach-Object { Write-Host $_.Message }
+            throw "Real Windows Edge launch failed: $nodeExit"
+          }
       - name: Upload raw Windows Edge launch evidence
         if: always()
         uses: actions/upload-artifact@v4

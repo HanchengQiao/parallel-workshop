@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { cpSync, createWriteStream, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { platform, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { cdpCommand } from './edge-workbench-target.mjs';
 
@@ -19,7 +19,25 @@ const version = JSON.parse(readFileSync(join(source, 'manifest.json'), 'utf8')).
 const fixture = mkdtempSync(join(tmpdir(), 'braintrust-launch-live-'));
 const artifacts = process.env.PWB_EDGE_EVIDENCE || join(root, 'build', 'launch-refresh-live', new Date().toISOString().replace(/[:.]/g, '-'));
 mkdirSync(artifacts, { recursive: true });
-const report = { source, version, fixture, platform: platform(), cases: [], observations: [] };
+const report = { source, version, fixture, platform: platform(), node: process.version, status: 'RUNNING', cases: [], observations: [] };
+function checkpoint(stage) {
+  report.stage = stage;
+  report.updatedAt = new Date().toISOString();
+  writeFileSync(join(artifacts, 'report.json'), JSON.stringify(report, null, 2) + '\n');
+  console.log(`[edge-live] ${stage}`);
+}
+
+function installCandidateAt(destination) {
+  if (platform() === 'win32') {
+    // Exercise the actual product installer while Edge is running, including
+    // directory replacement and rollback, rather than simulating it with cp.
+    execFileSync('powershell.exe', [
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+      '-File', join(source, 'install.ps1'), '-SourceDir', source,
+      '-TargetRoot', dirname(destination), '-NoLaunch', '-NoShortcuts', '-NoClipboard'
+    ], { timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'] });
+  } else cpSync(source, destination, { recursive: true });
+}
 if (process.env.PWB_EDGE_START_URL) assert.equal(process.env.PWB_EDGE_START_URL, pathToFileURL(join(source, 'start.html')).href,
   'The actual PowerShell launcher must point at the installed visible entry.');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -103,6 +121,7 @@ function forbiddenPage(page) {
 
 async function ready(label, expectedVersion = version) {
   const started = Date.now();
+  checkpoint(`waiting:${label}`);
   let last;
   let candidate;
   let previousTargets;
@@ -130,6 +149,7 @@ async function ready(label, expectedVersion = version) {
               additionalBrowserPages: stablePages.filter(page => page.url !== workbenchURL).map(({ id, url, title }) => ({ id, url, title })) };
             report.cases.push(result);
             console.log(JSON.stringify(result));
+            checkpoint(`passed:${label}`);
             return candidate;
           }
         }
@@ -141,6 +161,7 @@ async function ready(label, expectedVersion = version) {
 }
 
 try {
+  checkpoint('prepare-published-v0.3.1');
   // The old runtime is built from the actual published tag, not a new build whose
   // version number was edited. Only its generated runtime resources are needed.
   const oldStage = join(fixture, 'published-031');
@@ -154,14 +175,19 @@ try {
   let page = await ready('published-v0.3.1-before-install', '0.3.1');
   const originalTargetID = page.id;
   const sentinel = { selected: ['deepseek', 'doubao'], zoom: 0.9, proof: 'preserve-extension-local-storage' };
+  checkpoint('save-extension-storage-sentinel');
   await evaluate(page, `chrome.storage.local.set({'launch-regression-preserved':${JSON.stringify(sentinel)}})`);
+  checkpoint('save-site-cookie-sentinel');
   await cdpCommand(page.webSocketDebuggerUrl, 'Network.setCookie', {
     name: 'braintrust_reload_regression', value: 'preserve-site-cookie',
     url: 'https://chat.deepseek.com/', secure: true, expires: Math.floor(Date.now() / 1000) + 3600
   });
-  cpSync(source, installed, { recursive: true });
+  checkpoint('install-new-files-while-old-edge-is-running');
+  installCandidateAt(installed);
+  checkpoint('verify-old-runtime-new-disk-mismatch');
   const mismatch = await evaluate(page, `(async()=>({runtime:chrome.runtime.getManifest().version,disk:(await(await fetch(chrome.runtime.getURL('manifest.json'),{cache:'no-store'})).json()).version}))()`);
   assert.deepEqual(mismatch, { runtime: '0.3.1', disk: version });
+  checkpoint('open-visible-entry-for-upgrade');
   await openEntry(pathToFileURL(join(installed, 'start.html')).href);
   page = await ready('actual-v0.3.1-runtime-to-new-disk-and-self-reload');
   assert.equal(page.id, originalTargetID, 'The old workbench tab must be restored in place after Edge changes it to a new-tab page');
@@ -177,8 +203,9 @@ try {
   await ready('cold-restart-existing-profile-through-visible-local-entry');
   await stopBrowser();
 
-  const freshInstalled = join(fixture, 'fresh-installed');
-  cpSync(source, freshInstalled, { recursive: true });
+  const freshInstalled = join(fixture, 'fresh-install', 'edge-extension');
+  checkpoint('install-fresh-candidate');
+  installCandidateAt(freshInstalled);
   await startBrowser(freshInstalled, join(fixture, 'first-install-profile'), pathToFileURL(join(freshInstalled, 'start.html')).href);
   await ready('fresh-install-local-entry-and-onInstalled-concurrent');
   await stopBrowser();

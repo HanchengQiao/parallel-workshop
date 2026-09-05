@@ -101,4 +101,17 @@ const embedded = await runCase(null, { readySender: { id: 'test-extension', fram
   url: 'chrome-extension://test-extension/launch.html', tab: { id: 20 } } });
 assert.equal(embedded.find(call => call[0] === 'reply')[1].ok, false, '外部网页嵌入的启动页不可导航父标签');
 assert.equal(embedded.filter(call => ['tabs.update', 'tabs.remove', 'windows.create'].includes(call[0])).length, 0);
+// A navigation request can complete while getContexts still omits the restored
+// workbench and Edge still reports its temporary new-tab document.
+const delayedContext = await runCase(null, {
+  existing: [{ id: 20, windowId: 1, url: 'edge://newtab/' },
+    { id: 21, windowId: 2, url: 'chrome-extension://test-extension/launch.html' }],
+  pending: { tabId: 21, tabIds: [21, 20], workbenchTabIds: [20], version: '0.4.0', createdAt: Date.now() },
+  readySender: { id: 'test-extension', frameId: 0, url: 'chrome-extension://test-extension/launch.html', tab: { id: 21 } }
+});
+const delayedNavigations = delayedContext.filter(call => call[0] === 'tabs.update' && call[2].url);
+assert.equal(delayedNavigations[0][1], 20, '必须先恢复原工作台，再恢复启动页');
+assert.equal(delayedNavigations.filter(call => call[2].url.endsWith('/workbench.html')).length, 1,
+  '原工作台context尚未出现时，不得把启动页提升为第二工作台');
+assert.equal(delayedContext.find(call => call[0] === 'tabs.remove')[1], 21, '仅收起重复启动页，保留原工作台');
 console.log('✅ Edge 首次打开、已有窗口复用、更新恢复、超期恢复拒绝与启动发送者校验通过');
