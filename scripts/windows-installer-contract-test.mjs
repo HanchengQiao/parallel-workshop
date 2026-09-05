@@ -30,6 +30,9 @@ requireText(!/releases\/download\/v?\d/.test(bootstrap), '固定入口不得硬�
 requireText(bootstrap.includes("$_.name -eq 'edge-extension.zip'"), '固定入口必须精确选择用户安装包');
 requireText(bootstrap.includes('Invoke-WithRetry') && bootstrap.includes('Get-FileHash'),
   '固定入口缺少重试或 SHA-256 强校验');
+requireText(bootstrap.includes('/releases/latest/download/update.json') && bootstrap.includes('-TimeoutSec 12') &&
+  bootstrap.indexOf('/releases/latest/download/update.json') < bootstrap.indexOf('https://api.github.com'),
+  '固定入口应优先读取无 API 配额限制的官方索引，网络请求必须有界');
 requireText(bootstrap.includes('$release.draft -or $release.prerelease'), '固定入口未拒绝草稿或预发布版本');
 requireText(bootstrap.includes('Expand-Archive -LiteralPath'), '固定入口没有安全处理含空格的压缩包路径');
 requireText(bootstrap.includes('[switch]$VerifyOnly') && bootstrap.includes('[switch]$NoLaunch') &&
@@ -52,17 +55,24 @@ requireText(installer.includes('恢复旧版本') && installer.includes('已保�
 requireText(installer.includes('FromBase64String') && installer.includes('$derivedID -ne $expectedExtensionID'),
   '安装器必须校验 manifest 公钥确实导出固定扩展 ID');
 requireText(installer.includes('$shortcut.TargetPath = $edgePath') &&
-  installer.includes('$shortcut.Arguments = "--app=$workbenchURL"'),
+  installer.includes('$shortcut.Arguments = $launchInfo.Arguments'),
   '快捷方式应直接启动 Edge 应用窗口，避免 PowerShell 窗口和 blank 预热');
+requireText(installer.includes("Join-Path $dir '智囊.lnk'") && installer.includes('Test-ProductShortcut'),
+  '安装器必须提供智囊入口，且仅迁移本产品旧快捷方式');
+requireText(installer.includes('if ($launchInfo.ExtensionReady)') && installer.includes('Start-Process -FilePath $edgePath -ArgumentList $launchInfo.Arguments'),
+  '已安装用户必须进入启动页确认运行版本，不能只打开扩展管理页');
 requireText(!installer.includes('--user-data-dir'), '安装/启动不得切换 Edge 用户数据目录');
 requireText(installer.includes('if (-not $NoClipboard)') && installer.includes("Get-Command 'Set-Clipboard'"),
   '安装器必须允许隔离测试禁止写入全局剪贴板');
 
 const launcher = read('Windows/edge-extension/launch.ps1');
-requireText(launcher.includes('chrome-extension://eeppnjgcjioaohaaoaknkkafhodccmmf/workbench.html'),
+requireText(launcher.includes('chrome-extension://eeppnjgcjioaohaaoaknkkafhodccmmf/launch.html'),
   '启动器必须指向固定侧载扩展 ID');
-requireText(launcher.includes('Start-Process -FilePath $edge -ArgumentList "--app=$workbenchURL"'),
-  '启动器必须直接打开应用窗口');
+requireText(launcher.includes("'start.html'") && launcher.includes("[Uri]::new($startFile, [UriKind]::Absolute).AbsoluteUri") &&
+  launcher.includes('Start-Process -FilePath $edge -ArgumentList $arguments'),
+  '启动器必须打开可见的本地启动页，并正确编码中文、空格路径');
+requireText(launcher.includes('Get-ExtensionRegistration') && launcher.includes('Secure Preferences') && launcher.includes('PathMatches'),
+  '启动器必须识别实际安装的现有 Edge profile 和路径，避免启动另一份旧安装');
 requireText(!launcher.includes('about:blank') && !launcher.includes('--user-data-dir') && !launcher.includes('Start-Sleep'),
   '启动器不得包含 blank 预热、独立 profile 或固定等待');
 

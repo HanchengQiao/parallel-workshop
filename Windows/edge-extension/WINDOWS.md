@@ -1,10 +1,12 @@
-# Windows 版：Edge 扩展安装与使用指南
+# 智囊 · Braintrust — Windows 安装与使用
 
-> v0.3.1 是当前稳定版。
+v0.4.0 是当前稳定版。
+
+下面的固定命令自动获取 GitHub 最新稳定版。让 Agent 帮忙安装时，复制[Windows 极简 Prompt](https://github.com/porcelaintech/parallel-workshop/blob/main/AGENT_INSTALL_PROMPT.md#windows--复制以下整段)，直接使用本机 PowerShell 即可。
 
 本版完善更新流程：顶部固定显示 `Update` 和当前版本，明确区分「已是最新版」、网络超时与服务错误，并支持重试。启动、回到前台及每 6 小时自动检查；GitHub API 受限或暂时不可用时使用 Release 的 `update.json` 备用索引。
 
-GitHub 侧载版点击 `Update` 后下载并校验新版 ZIP，再按提示解压、运行 `install.bat`，最后在 `edge://extensions` 点击「重新加载」。Edge Add-ons 渠道通过浏览器完成安装和重载。
+GitHub 侧载版点击 `Update` 后下载并校验新版 ZIP，解压后运行新版 `install.bat`。从桌面「智囊」打开时，启动页核对实际运行版本；若仍为旧版，会重新加载本扩展以启用已安装新版。安装保留登录与偏好。商店渠道由浏览器管理安装和重载。
 
 ## 产品形态对照
 
@@ -22,7 +24,7 @@ GitHub 侧载版点击 `Update` 后下载并校验新版 ZIP，再按提示解�
 请在 PowerShell 中直接执行下面整行，不要再次包进 `powershell.exe -Command`。
 
 ```powershell
-$pwbInstaller = Join-Path $env:TEMP ('ParallelWorkbench-install-' + [Guid]::NewGuid().ToString('N') + '.ps1'); try { & curl.exe --fail --location --silent --show-error --retry 3 --retry-max-time 90 --connect-timeout 10 --max-time 60 'https://github.com/porcelaintech/parallel-workshop/releases/latest/download/install-windows.ps1' --output $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "安装器下载失败（curl 退出码 $LASTEXITCODE）" }; & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "平行工作台安装失败（退出码 $LASTEXITCODE）" } } finally { Remove-Item -LiteralPath $pwbInstaller -Force -ErrorAction SilentlyContinue }
+$pwbInstaller = Join-Path $env:TEMP ('ParallelWorkbench-install-' + [Guid]::NewGuid().ToString('N') + '.ps1'); try { & curl.exe --fail --location --silent --show-error --retry 3 --retry-max-time 90 --connect-timeout 10 --max-time 60 'https://github.com/porcelaintech/parallel-workshop/releases/latest/download/install-windows.ps1' --output $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "安装器下载失败（curl 退出码 $LASTEXITCODE）" }; & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "智囊安装失败（退出码 $LASTEXITCODE）" } } finally { Remove-Item -LiteralPath $pwbInstaller -Force -ErrorAction SilentlyContinue }
 ```
 
 安装器会自动完成版本查询、重试下载、SHA-256 校验、解压、原子复制与快捷方式创建，不需要管理员权限，也不会等待“按任意键”而卡住 Agent。
@@ -33,7 +35,7 @@ $pwbInstaller = Join-Path $env:TEMP ('ParallelWorkbench-install-' + [Guid]::NewG
 2. 打开 Edge，地址栏输入 `edge://extensions`
 3. 打开左下角「开发人员模式」开关
 4. 点「加载解压缩的扩展」→ 选择 `edge-extension` 目录
-5. 点工具栏的「平行工作台」图标 → 弹出独立工作台窗口（1500×950，应用式窗口）
+5. 正常安装后双击桌面「智囊」，或在开始菜单搜索「智囊」，直接进入工作台；无需每次在拼图菜单里找扩展
 
 > 日常使用前：先在 Edge 里正常登录各平台（chat.deepseek.com / doubao.com / kimi.com 等），扩展里的 pane 直接继承这些登录态。
 
@@ -47,7 +49,7 @@ $pwbInstaller = Join-Path $env:TEMP ('ParallelWorkbench-install-' + [Guid]::NewG
 - [x] 状态角标（就绪/未登录/未找到输入框/无响应）
 - [x] 统一输入 → 注入发送 → 平台对话区出现消息气泡
 
-**快捷方式**：install.bat 自动创建「桌面 + 开始菜单」快捷方式，通过 `msedge --app=<工作台URL>` 直接打开应用式窗口，不显示 blank 预热页。
+**快捷方式**：install.bat 创建「桌面 + 开始菜单」的「智囊」快捷方式，先打开本地 `start.html` 显示加载状态，扩展就绪后在同一窗口核对版本并进入工作台。已有「平行工作台」快捷方式也会更新到同一入口。
 
 ## 首次实测清单（在 Windows Edge 上逐项确认）
 
@@ -73,7 +75,7 @@ $pwbInstaller = Join-Path $env:TEMP ('ParallelWorkbench-install-' + [Guid]::NewG
 
 ## 扩展开发/测试陷阱
 
-- **MV3 缓存（worker 与 manifest）**：改动 background.js / manifest.json 后即使重启 Edge 也可能仍跑旧代码——真正的缓存源是扩展目录里的 `_metadata/`（含 DNR 规则集缓存）。可靠刷新：manifest 版本号 +1，删除 `edge-extension/_metadata` 与 profile 下的 `Service Worker`、`Extension State`、`Extension Scripts`，重启 Edge
+- **扩展重新加载**：更新文件后仅刷新网页不会重新加载后台或 manifest。启动页会核对运行版本；仍为旧版时，在 `edge://extensions` 对「智囊」点击「重新加载」。不要删除 Edge profile 的 `Service Worker`、`Extension State` 或 `Extension Scripts`，这些目录属于整个浏览器配置，可能影响其他扩展。
 - **重定向域名**：帧 URL 与适配器 origin 可能不同（tongyi.com → qianwen.com、yiyan → wenxin），帧匹配必须用 homeHosts 兜底
 
 ## 登录围栏与 DeepSeek 微信回调

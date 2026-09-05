@@ -38,7 +38,7 @@ requireText(!content.includes("window.addEventListener('message'"), '问答 cont
 requireText(content.includes('chrome.runtime.onMessage.addListener'), 'content script 未注册 runtime 通道');
 requireText(background.includes('WB_AUTH_CALLBACK_CANDIDATE'), '后台缺少认证 callback 校验');
 requireText(!background.includes("url: 'about:blank'") && background.includes('isReusableEmptyTab') &&
-  background.includes('chrome.tabs.update(tab.id, { url: WORKBENCH_URL'),
+  background.includes('chrome.tabs.update(tab.id, { url: LAUNCH_URL'),
   '工具栏启动未把已有空白/新标签页原地替换为工作台');
 requireText(manifest.permissions?.includes('activeTab'), '工具栏入口缺少安全读取当前活动标签 URL 的 activeTab 权限');
 requireText(!launcher.includes('--no-startup-window') && !windowsLaunchPS.includes('--no-startup-window') &&

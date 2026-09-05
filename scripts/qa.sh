@@ -54,6 +54,7 @@ with zipfile.ZipFile('build/edge-extension-store.zip') as archive:
     expected = {
         'manifest.json', 'distribution.json', 'background.js', 'auth-bridge.js', 'intercept.js', 'content.js',
         'workbench.html', 'workbench.js', 'workbench.css', 'lib/model-preference.js',
+        'launch.html', 'launch.js', 'launch.css',
         'lib/adapters/index.json',
         'icons/16.png', 'icons/32.png', 'icons/48.png', 'icons/128.png'
     }
@@ -62,6 +63,7 @@ with zipfile.ZipFile('build/edge-extension-store.zip') as archive:
 PY
 node scripts/security-regression-test.mjs || FAIL=1
 node scripts/background-launch-test.mjs || FAIL=1
+node scripts/edge-launch-flow-test.mjs || FAIL=1
 node scripts/palette-regression-test.mjs || FAIL=1
 node scripts/edge-preferences-test.mjs || FAIL=1
 node scripts/edge-update-test.mjs || FAIL=1

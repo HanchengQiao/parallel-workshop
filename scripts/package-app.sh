@@ -49,9 +49,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>平行工作台</string>
+	<string>智囊</string>
 	<key>CFBundleDisplayName</key>
-	<string>平行工作台</string>
+	<string>智囊</string>
 	<key>CFBundleExecutable</key>
 	<string>ParallelWorkbench</string>
 	<key>CFBundleIdentifier</key>

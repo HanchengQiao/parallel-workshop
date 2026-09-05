@@ -1,8 +1,10 @@
-# 平行工作台 · macOS 版
+# 智囊 · Braintrust — macOS 版
+
+v0.4.0 是当前稳定版。
 
 > 本目录是 **macOS 产品入口**。Windows/Edge 用户请使用仓库根目录下 `Windows/` 目录。
 
-> v0.3.1 是当前稳定版。一键安装脚本自动获取最新稳定 Release。
+一键安装脚本自动获取最新稳定 Release。让 Agent 帮忙安装时，复制 [macOS 极简 Prompt](../AGENT_INSTALL_PROMPT.md#macos--复制以下整段) 即可。
 
 本版完善更新流程：顶部固定显示 `Update` 和当前版本，明确区分「已是最新版」、网络超时与服务错误，并支持重试。启动、回到前台及每 6 小时自动检查；GitHub API 受限或暂时不可用时使用 Release 的 `update.json` 备用索引。发现新版后点击 `Update` 即可下载、校验并安装，等待旧进程退出后重启新版。
 
@@ -14,15 +16,15 @@
 curl -fsSL https://raw.githubusercontent.com/porcelaintech/parallel-workshop/main/install.sh | bash
 ```
 
-脚本会自动：下载最新版 DMG → 挂载 → 复制「平行工作台.app」到 /Applications → 去除隔离属性 → 启动。
+脚本会自动下载并校验最新版 DMG，安装到 `/Applications/ParallelWorkbench.app`，然后启动「智囊」。更新保留原有应用标识、登录数据与使用偏好。
 
 **方式二：手动下载 DMG**
 
 ```bash
-VERSION=0.3.1
+VERSION=0.4.0
 curl -LO "https://github.com/porcelaintech/parallel-workshop/releases/download/v${VERSION}/ParallelWorkbench-${VERSION}.dmg"
 open "ParallelWorkbench-${VERSION}.dmg"
-# 把「平行工作台」拖进 Applications 即可
+# 把 ParallelWorkbench.app 拖进 Applications 即可
 ```
 
 > npm 包与 Homebrew tap 尚未发布；请勿使用仓库旧文档中出现过的 npx/brew 命令。

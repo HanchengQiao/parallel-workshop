@@ -22,13 +22,50 @@ function Write-Step([string]$Message) {
 
 function Invoke-WithRetry([scriptblock]$Operation, [string]$Description) {
     $lastError = $null
-    for ($attempt = 1; $attempt -le 3; $attempt++) {
+    for ($attempt = 1; $attempt -le 2; $attempt++) {
         try { return & $Operation } catch {
             $lastError = $_
-            if ($attempt -lt 3) { Start-Sleep -Seconds $attempt }
+            if ($attempt -lt 2) { Start-Sleep -Seconds 1 }
         }
     }
-    throw "$Description 失败（已重试 3 次）：$($lastError.Exception.Message)"
+    throw "$Description 失败（共尝试 2 次）：$($lastError.Exception.Message)"
+}
+
+function Get-LatestPackage([string]$Repo) {
+    if ($Repo -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw '仓库名称格式无效' }
+    $headers = @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'Braintrust-Windows-Installer' }
+    # 固定 Release 索引不消耗 GitHub API 配额，也不要求 Agent 预先配置账户或令牌。
+    try {
+        $index = Invoke-RestMethod -Uri "https://github.com/$Repo/releases/latest/download/update.json" -Headers $headers -TimeoutSec 12
+        $version = [string]$index.version
+        if ($index.schemaVersion -ne 1 -or $version -notmatch '^\d+\.\d+\.\d+(?:\.\d+)?$') { throw '更新索引格式无效' }
+        $url = "https://github.com/$Repo/releases/download/v$version/edge-extension.zip"
+        if ([string]$index.edgeURL -cne $url -or [string]$index.edgeSHA256 -notmatch '^[0-9a-fA-F]{64}$') {
+            throw '更新索引未提供匹配版本的官方安装包与 SHA-256'
+        }
+        return [pscustomobject]@{ Version = $version; URL = $url; SHA256 = [string]$index.edgeSHA256 }
+    } catch { $indexError = $_.Exception.Message }
+
+    try {
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers $headers -TimeoutSec 12
+        if ($release.draft -or $release.prerelease) { throw '最新 Release 不是稳定版本' }
+        $asset = @($release.assets | Where-Object { $_.name -eq 'edge-extension.zip' }) | Select-Object -First 1
+        if (-not $asset) { throw 'Release 缺少 edge-extension.zip' }
+        $version = ([string]$release.tag_name).TrimStart('v')
+        if ($version -notmatch '^\d+\.\d+\.\d+(?:\.\d+)?$') { throw 'Release 版本号格式无效' }
+        $url = "https://github.com/$Repo/releases/download/v$version/edge-extension.zip"
+        if ([string]$asset.browser_download_url -cne $url) { throw 'Release 安装包下载地址无效' }
+        $digest = ''
+        if ($asset.PSObject.Properties.Name -contains 'digest') { $digest = ([string]$asset.digest) -replace '^sha256:', '' }
+        if ($digest -notmatch '^[0-9a-fA-F]{64}$') {
+            $match = [regex]::Match([string]$release.body, '(?im)^SHA256\s+edge-extension\.zip\s+([0-9a-f]{64})\s*$')
+            if ($match.Success) { $digest = $match.Groups[1].Value }
+        }
+        if ($digest -notmatch '^[0-9a-fA-F]{64}$') { throw 'Release 未提供有效 SHA-256' }
+        return [pscustomobject]@{ Version = $version; URL = $url; SHA256 = $digest }
+    } catch {
+        throw "无法获取最新安装包。下载索引：$indexError；版本服务：$($_.Exception.Message)"
+    }
 }
 
 try {
@@ -41,27 +78,13 @@ try {
         Write-Step '使用本地候选包'
         Copy-Item -LiteralPath (Resolve-Path -LiteralPath $ArchivePath).Path -Destination $zip
     } else {
-        Write-Step '读取 GitHub 最新稳定版本'
-        $headers = @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'ParallelWorkbench-Windows-Installer' }
-        $api = "https://api.github.com/repos/$Repository/releases/latest"
-        $release = Invoke-WithRetry { Invoke-RestMethod -Uri $api -Headers $headers -TimeoutSec 30 } '获取版本信息'
-        if ($release.draft -or $release.prerelease) { throw '最新 Release 不是稳定版本' }
-        $asset = @($release.assets | Where-Object { $_.name -eq 'edge-extension.zip' }) | Select-Object -First 1
-        if (-not $asset) { throw 'Release 缺少 edge-extension.zip' }
-        $releaseVersion = ([string]$release.tag_name).TrimStart('v')
-        if ($releaseVersion -notmatch '^\d+\.\d+\.\d+(?:\.\d+)?$') { throw 'Release 版本号格式无效' }
-        if ($asset.PSObject.Properties.Name -contains 'digest') {
-            $expectedDigest = ([string]$asset.digest) -replace '^sha256:', ''
-        }
-        if ($expectedDigest -notmatch '^[0-9a-fA-F]{64}$') {
-            $match = [regex]::Match([string]$release.body, '(?im)^SHA256\s+edge-extension\.zip\s+([0-9a-f]{64})\s*$')
-            if ($match.Success) { $expectedDigest = $match.Groups[1].Value }
-        }
-        if ($expectedDigest -notmatch '^[0-9a-fA-F]{64}$') { throw 'Release 未提供有效 SHA-256' }
-
-        Write-Step "下载 v$releaseVersion（文件约 100 KB）"
+        Write-Step '正在获取并安装最新版智囊'
+        $package = Get-LatestPackage $Repository
+        $releaseVersion = $package.Version
+        $expectedDigest = $package.SHA256
+        Write-Step "下载 v$releaseVersion"
         Invoke-WithRetry {
-            Invoke-WebRequest -UseBasicParsing -Uri $asset.browser_download_url -Headers $headers -OutFile $zip -TimeoutSec 60
+            Invoke-WebRequest -UseBasicParsing -Uri $package.URL -Headers @{ 'User-Agent' = 'Braintrust-Windows-Installer' } -OutFile $zip -TimeoutSec 45
         } '下载安装包' | Out-Null
         $actualDigest = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($actualDigest -ne $expectedDigest.ToLowerInvariant()) { throw 'SHA-256 校验失败' }
@@ -93,7 +116,7 @@ try {
         NoClipboard = [bool]$NoClipboard
     }
     & (Join-Path $source 'install.ps1') @parameters
-    Write-Step "全部完成：v$($manifest.version)"
+    Write-Step "安装完成：v$($manifest.version)"
 } finally {
     if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }
 }

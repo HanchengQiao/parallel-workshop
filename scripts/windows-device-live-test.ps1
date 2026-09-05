@@ -232,11 +232,18 @@ try {
     if ($launchLine.Count -ne 1) { throw 'launch -PrintOnly 未返回 JSON' }
     $launchProbe = $launchLine[0] | ConvertFrom-Json
     if (-not (Test-Path -LiteralPath ([string]$launchProbe.EdgePath) -PathType Leaf)) { throw 'launch -PrintOnly 返回的 Edge 路径无效' }
-    if ([string]$launchProbe.WorkbenchURL -ne 'chrome-extension://eeppnjgcjioaohaaoaknkkafhodccmmf/workbench.html') {
+    if ([string]$launchProbe.WorkbenchURL -ne 'chrome-extension://eeppnjgcjioaohaaoaknkkafhodccmmf/launch.html') {
         throw 'launch -PrintOnly 返回的工作台 URL 无效'
     }
-    if ([string]$launchProbe.Arguments -match 'about:blank|--user-data-dir|--profile-directory') {
-        throw '启动参数触碰 blank 预热或 Edge profile'
+    $expectedStartURL = [Uri]::new((Join-Path $installed 'start.html'), [UriKind]::Absolute).AbsoluteUri
+    if ([string]$launchProbe.StartURL -ne $expectedStartURL -or -not ([string]$launchProbe.Arguments).Contains($expectedStartURL)) {
+        throw 'launch -PrintOnly 未使用本次安装的可见启动页'
+    }
+    if ([string]$launchProbe.Arguments -match 'about:blank|--user-data-dir') {
+        throw '启动参数触碰 blank 预热或独立 Edge profile'
+    }
+    if ([string]$launchProbe.ProfileDirectory -notmatch '^(Default|Profile \d+)$') {
+        throw '启动参数未选择有效的现有 Edge profile'
     }
 } catch {
     $failure = $_.Exception.Message

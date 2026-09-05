@@ -22,8 +22,8 @@ ln -s /Applications "$STAGE/Applications"
 
 DMG="build/ParallelWorkbench-${VERSION}.dmg"
 rm -f "$DMG"
-hdiutil create -volname "平行工作台" -srcfolder "$STAGE" -ov -format UDZO "$DMG" > /dev/null
+hdiutil create -volname "智囊" -srcfolder "$STAGE" -ov -format UDZO "$DMG" > /dev/null
 rm -rf "$STAGE"
 
 echo "✅ DMG 已生成：$DMG"
-echo "   用户安装：打开 DMG → 把「平行工作台」拖进 Applications → 双击运行"
+echo "   用户安装：打开 DMG → 把应用拖进 Applications → 双击运行智囊"

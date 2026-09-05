@@ -25,13 +25,14 @@ function makeRelease(assets, version = '1.1.0') {
 }
 
 async function boot({ storeBuild, release, requestUpdateCheck, assetFetchFailures = 0,
-  assetBodyFailures = 0, releaseFetch, fallbackManifest, online = true }) {
+  assetBodyFailures = 0, releaseFetch, fallbackManifest, online = true, installedVersion = '1.0.0', initialDraft = '' }) {
   const dom = new JSDOM(html, {
     runScripts: 'outside-only',
     pretendToBeVisual: true,
     url: 'chrome-extension://test/workbench.html'
   });
   const { window } = dom;
+  window.document.getElementById('question').value = initialDraft;
   if (!window.crypto.randomUUID) {
     window.crypto.randomUUID = () => '00000000-0000-4000-8000-000000000000';
   }
@@ -46,6 +47,7 @@ async function boot({ storeBuild, release, requestUpdateCheck, assetFetchFailure
   const fetchedURLs = [];
   let updateListener;
   let storageWrites = 0;
+  let reloadReceipt;
   let updateChecks = 0;
   let reloads = 0;
   let objectURLs = 0;
@@ -81,6 +83,10 @@ async function boot({ storeBuild, release, requestUpdateCheck, assetFetchFailure
     if (url === 'chrome-extension://test/distribution.json') {
       return { ok: true, json: async () => ({ channel: storeBuild ? 'edge-addons' : 'sideload' }) };
     }
+    if (url === 'chrome-extension://test/manifest.json') {
+      assert.equal(options?.cache, 'no-store', '磁盘版本检查不能使用旧 HTTP 缓存');
+      return { ok: true, json: async () => ({ version: installedVersion }) };
+    }
     if (url === 'https://api.github.com/repos/porcelaintech/parallel-workshop/releases/latest') {
       releaseChecks += 1;
       if (releaseFetch) return releaseFetch(releaseChecks, options);
@@ -115,6 +121,7 @@ async function boot({ storeBuild, release, requestUpdateCheck, assetFetchFailure
     runtime: {
       id: 'test',
       getURL: path => `chrome-extension://test/${path}`,
+      getContexts: async () => [{ tabId: 7, frameId: 0, documentUrl: 'chrome-extension://test/workbench.html' }],
       getManifest: () => storeBuild
         ? { version: '1.0.0' }
         : { version: '1.0.0', key: 'fixed-side-load-id-key' },
@@ -133,7 +140,10 @@ async function boot({ storeBuild, release, requestUpdateCheck, assetFetchFailure
     storage: {
       local: {
         get: async () => ({}),
-        set: async () => { storageWrites += 1; }
+        set: async value => {
+          storageWrites += 1;
+          if (value['wb-pending-extension-reload']) reloadReceipt = value['wb-pending-extension-reload'];
+        }
       }
     },
     tabs: {
@@ -161,6 +171,7 @@ async function boot({ storeBuild, release, requestUpdateCheck, assetFetchFailure
     },
     get updateChecks() { return updateChecks; },
     get reloads() { return reloads; },
+    get reloadReceipt() { return reloadReceipt; },
     get objectURLs() { return objectURLs; },
     get releaseChecks() { return releaseChecks; },
     get state() { return window.document.getElementById('update-banner').dataset.state; },
@@ -323,6 +334,8 @@ if (store.timerCount(250) !== 1) {
 }
 await store.runTimer(250);
 if (store.reloads !== 1) throw new Error('商店版没有通过 runtime.reload 完成一键更新');
+assert.equal(store.reloadReceipt?.tabId, 7, '商店重载前必须记录可恢复的原工作台');
+assert.deepEqual(JSON.parse(JSON.stringify(store.reloadReceipt?.tabIds)), [7]);
 if (store.downloads.length || store.objectURLs) {
   throw new Error('商店版错误地走了 ZIP 下载路径');
 }
@@ -412,7 +425,7 @@ if (sideLoaded.updateChecks !== 0 || sideLoaded.reloads !== 0 || sideLoaded.obje
   throw new Error('侧载版与商店更新路径发生了串路');
 }
 assert.equal(sideLoaded.state, 'downloaded');
-assert.match(sideLoaded.status, /install\.bat.*重新加载/, '侧载版必须说明实际安装步骤');
+assert.match(sideLoaded.status, /install\.bat.*启用新版/, '侧载版必须说明实际安装步骤');
 assert.notEqual(sideLoaded.window.document.getElementById('update-banner').style.display, 'none');
 sideLoaded.dom.window.close();
 
@@ -447,5 +460,19 @@ if (badDigest.downloads.length || badDigest.objectURLs) {
   throw new Error('SHA-256 不匹配时仍交付了更新包');
 }
 badDigest.dom.window.close();
+
+// Browser-restored text must keep the workbench usable while activation waits.
+const pendingDraft = await boot({ storeBuild: false, release: makeRelease([], '1.0.0'),
+  installedVersion: '1.1.0', initialDraft: 'Keep my unsent question' });
+assert.equal(pendingDraft.state, 'installed-pending');
+assert.equal(pendingDraft.window.document.getElementById('question').value, 'Keep my unsent question');
+assert.equal(pendingDraft.window.document.getElementById('startup-overlay').classList.contains('done'), true,
+  '等待草稿完成时也必须正常结束启动遮罩');
+assert.equal(pendingDraft.reloads, 0);
+pendingDraft.button.click();
+await delay(10);
+assert.equal(pendingDraft.state, 'installed-pending');
+assert.equal(pendingDraft.releaseChecks, 0, '本地新版待启用时不应覆盖为远程检查结果');
+pendingDraft.dom.window.close();
 
 console.log('✅ Edge 更新：永久入口、无新版、离线/HTTP/超时重试、官方备用源、前台节流、商店单次重载、侧载精确资产/SHA-256 全部通过');

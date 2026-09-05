@@ -1,5 +1,7 @@
 // 后台：点击图标打开工作台窗口；按需把 content.js 精准注入各平台 frame
 const WORKBENCH_URL = chrome.runtime.getURL('workbench.html');
+const LAUNCH_URL = chrome.runtime.getURL('launch.html');
+const RELOAD_PENDING_KEY = 'wb-pending-extension-reload';
 const REUSABLE_EMPTY_URLS = new Set([
   'about:blank',
   'edge://newtab/',
@@ -13,10 +15,72 @@ function isReusableEmptyTab(tab) {
   return Number.isInteger(tab?.id) && REUSABLE_EMPTY_URLS.has(url);
 }
 
-async function openWorkbenchFromAction(tab) {
+function isWorkbenchEntry(tab) {
+  return [WORKBENCH_URL, LAUNCH_URL].includes(tab?.pendingUrl || tab?.url);
+}
+
+async function workbenchEntries() {
+  // Edge omits tab.url even for extension-owned tabs without the broad tabs
+  // permission. getContexts enumerates only this extension's own documents.
+  const contexts = await chrome.runtime.getContexts({ contextTypes: ['TAB'] });
+  return contexts.filter(context => context.frameId === 0 &&
+    [WORKBENCH_URL, LAUNCH_URL].includes(context.documentUrl) && Number.isInteger(context.tabId))
+    .map(context => ({ id: context.tabId, windowId: context.windowId, url: context.documentUrl }));
+}
+
+function isReloadLandingURL(raw) {
+  if (REUSABLE_EMPTY_URLS.has(raw)) return true;
+  try {
+    const url = new URL(raw);
+    return url.protocol === 'https:' && ['ntp.msn.com', 'ntp.msn.cn'].includes(url.hostname) && url.pathname === '/edge/ntp';
+  } catch { return false; }
+}
+
+async function canRestoreReloadTab(tab, entries) {
+  if (entries.some(entry => entry.id === tab.id) || isReusableEmptyTab(tab)) return true;
+  // The new worker can start before Edge has committed its replacement new-tab
+  // page. Wait for that actual navigation rather than abandoning the original tab.
+  const deadline = Date.now() + 5000;
+  do {
+    let frames;
+    try { frames = await chrome.webNavigation.getAllFrames({ tabId: tab.id }); } catch { frames = []; }
+    const top = (frames || []).find(frame => frame.frameId === 0);
+    const url = top?.url || tab.pendingUrl || tab.url;
+    if (url) return isReloadLandingURL(url);
+    await new Promise(resolve => setTimeout(resolve, 100));
+  } while (Date.now() < deadline);
+  return false;
+}
+
+async function focusWorkbench(tab) {
+  await chrome.tabs.update(tab.id, { active: true });
+  if (Number.isInteger(tab.windowId)) await chrome.windows.update(tab.windowId, { focused: true });
+}
+
+let openingWorkbench = null;
+let entryQueue = Promise.resolve();
+let pendingWorkbenchNavigation = null;
+function serializeEntry(action) {
+  const operation = entryQueue.then(action);
+  entryQueue = operation.catch(() => {});
+  return operation;
+}
+
+function openWorkbenchFromAction(tab) {
+  if (openingWorkbench) return openingWorkbench;
+  openingWorkbench = serializeEntry(() => openWorkbench(tab)).finally(() => { openingWorkbench = null; });
+  return openingWorkbench;
+}
+
+async function openWorkbench(tab) {
+  const existing = (await workbenchEntries())[0];
+  if (existing) {
+    await focusWorkbench(existing);
+    return existing;
+  }
   // 用户若正停在浏览器自动生成的空白/新标签页，就原地替换它，避免留下“空白页 + 工作台”双标签。
   if (isReusableEmptyTab(tab)) {
-    await chrome.tabs.update(tab.id, { url: WORKBENCH_URL, active: true });
+    await chrome.tabs.update(tab.id, { url: LAUNCH_URL, active: true });
     if (Number.isInteger(tab.windowId)) {
       await chrome.windows.update(tab.windowId, { focused: true });
     }
@@ -24,7 +88,7 @@ async function openWorkbenchFromAction(tab) {
   }
 
   await chrome.windows.create({
-    url: WORKBENCH_URL,
+    url: LAUNCH_URL,
     type: 'popup',
     width: 1500,
     height: 950
@@ -35,12 +99,45 @@ chrome.action.onClicked.addListener((tab) => {
   openWorkbenchFromAction(tab).catch(() => {
     // 标签可能在点击后被用户关闭；此时退回直接创建工作台，不引入预热或固定延迟。
     chrome.windows.create({
-      url: WORKBENCH_URL,
+      url: LAUNCH_URL,
       type: 'popup',
       width: 1500,
       height: 950
     });
   });
+});
+
+// runtime.reload invalidates the old extension pages. Keep a short-lived receipt in
+// local storage (session storage is cleared on reload), and restore only our tab.
+const reloadRecovery = (async () => {
+  const pending = (await chrome.storage.local.get(RELOAD_PENDING_KEY))[RELOAD_PENDING_KEY];
+  if (!pending) return false;
+  if (!Number.isInteger(pending.tabId) || typeof pending.createdAt !== 'number' ||
+      Date.now() - pending.createdAt < 0 || Date.now() - pending.createdAt > 120000) {
+    await chrome.storage.local.remove(RELOAD_PENDING_KEY);
+    return false;
+  }
+  const entries = await workbenchEntries();
+  const tabIds = [...new Set([pending.tabId, ...(Array.isArray(pending.tabIds) ? pending.tabIds : [])])]
+    .filter(Number.isInteger).slice(0, 30);
+  let restored = false;
+  for (const tabId of tabIds) {
+    let tab;
+    try { tab = await chrome.tabs.get(tabId); } catch { continue; }
+    if (!tab || !await canRestoreReloadTab(tab, entries)) continue;
+    // Edge changes extension pages into its new-tab page during runtime.reload.
+    // Restore only the IDs recorded before reload, and never a user-navigated site.
+    await chrome.tabs.update(tabId, { url: tabId === pending.tabId ? LAUNCH_URL : WORKBENCH_URL, active: tabId === pending.tabId });
+    restored = true;
+  }
+  if (!restored) await openWorkbenchFromAction();
+  return true;
+})().catch(() => false);
+
+chrome.runtime.onInstalled.addListener((details) => {
+  reloadRecovery.then(recovered => {
+    if (!recovered && details.reason === 'install') return openWorkbenchFromAction();
+  }).catch(error => console.warn('无法打开智囊入口', error));
 });
 
 // 平台主域名清单（content.js 内也有一份，注入时按帧 URL 过滤）
@@ -91,7 +188,7 @@ function mutateWorkbenchTabs(mutator) {
 }
 
 function trustedWorkbenchSender(sender) {
-  return sender?.id === chrome.runtime.id && sender.url === WORKBENCH_URL && Number.isInteger(sender.tab?.id);
+  return sender?.id === chrome.runtime.id && sender.frameId === 0 && sender.url === WORKBENCH_URL && Number.isInteger(sender.tab?.id);
 }
 
 function validatedDeepSeekCallback(raw) {
@@ -164,6 +261,35 @@ async function dispatchAttachment(tabId, msg) {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg !== 'object') return false;
+
+  if (msg.type === 'WB_LAUNCH_READY') {
+    if (sender?.id !== chrome.runtime.id || sender.frameId !== 0 || sender.url !== LAUNCH_URL || !Number.isInteger(sender.tab?.id)) {
+      sendResponse({ ok: false });
+      return false;
+    }
+    reloadRecovery.then(() => serializeEntry(async () => {
+      const entries = await workbenchEntries();
+      let existing = entries.find(tab => tab.id !== sender.tab.id && tab.url === WORKBENCH_URL);
+      // tabs.update resolves before the new document context appears. Reserve
+      // that own tab during the transition so simultaneous launches cannot both win.
+      if (!existing && pendingWorkbenchNavigation?.id !== sender.tab.id &&
+          Date.now() - (pendingWorkbenchNavigation?.createdAt || 0) < 5000) {
+        try {
+          const tab = await chrome.tabs.get(pendingWorkbenchNavigation.id);
+          if (tab && (entries.some(entry => entry.id === tab.id) || !tab.url)) existing = tab;
+        } catch { pendingWorkbenchNavigation = null; }
+      }
+      await chrome.storage.local.remove(RELOAD_PENDING_KEY);
+      if (existing) {
+        await focusWorkbench(existing);
+        await chrome.tabs.remove(sender.tab.id);
+      } else {
+        pendingWorkbenchNavigation = { id: sender.tab.id, createdAt: Date.now() };
+        await chrome.tabs.update(sender.tab.id, { url: WORKBENCH_URL, active: true });
+      }
+    })).then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
+    return true;
+  }
 
   if (msg.type === 'WB_REGISTER_WORKBENCH') {
     if (!trustedWorkbenchSender(sender) || typeof msg.channelToken !== 'string' || msg.channelToken.length < 20) {
