@@ -29,6 +29,13 @@ public enum PaneStatus: Equatable {
         config.websiteDataStore = .default()   // 本应用独立的持久 WebKit 数据存储
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         config.preferences.javaScriptCanOpenWindowsAutomatically = true
+        if adapter.id == "deepseek", !InjectionScripts.modelPreferenceJS.isEmpty {
+            config.userContentController.addUserScript(WKUserScript(
+                source: InjectionScripts.modelPreferenceJS,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            ))
+        }
         self.webView = WKWebView(frame: .zero, configuration: config)
         super.init()
         webView.navigationDelegate = self
@@ -291,23 +298,36 @@ public enum PaneStatus: Equatable {
 
     // MARK: - 缩放（解决平台界面宽于窗格时的裁切问题）
 
+    public static let minimumZoom = WorkbenchZoom.minimum
+    public static let maximumZoom = WorkbenchZoom.maximum
+
     @Published public private(set) var zoom: Double = 1.0
 
     public func zoomIn() {
-        setZoom(min(zoom + 0.1, 1.3))
+        setZoom(zoom + 0.1)
     }
 
     public func zoomOut() {
-        setZoom(max(zoom - 0.1, 0.6))
+        setZoom(zoom - 0.1)
     }
 
     public func resetZoom() {
         setZoom(1.0)
     }
 
+    /// 从持久化偏好恢复缩放。非有限值回退 100%，其余值严格钳制在安全范围内。
+    public func restoreZoom(_ storedZoom: Double?) {
+        setZoom(Self.normalizedZoom(storedZoom))
+    }
+
+    public static func normalizedZoom(_ value: Double?) -> Double {
+        WorkbenchZoom.normalized(value)
+    }
+
     private func setZoom(_ z: Double) {
-        zoom = z
-        webView.pageZoom = z
+        let normalized = Self.normalizedZoom(z)
+        zoom = normalized
+        webView.pageZoom = normalized
     }
 
     public func hasInput() async -> Bool {

@@ -21,10 +21,17 @@ const workbenchHTML = read('Windows/edge-extension/workbench.html');
 const edgeE2E = read('scripts/edge-e2e.mjs');
 const edgeAttachMatrix = read('scripts/edge-attach-matrix.mjs');
 const edgeTargetHelper = read('scripts/edge-workbench-target.mjs');
+const windowsBootstrap = read('install-windows.ps1');
+const windowsInstallBat = read('Windows/edge-extension/install.bat');
+const windowsInstallPS = read('Windows/edge-extension/install.ps1');
+const windowsLaunchPS = read('Windows/edge-extension/launch.ps1');
+const distribution = JSON.parse(read('Windows/edge-extension/distribution.json'));
 
 const layoutBody = workbench.match(/function layoutPanes\(\)[\s\S]*?\n  }\n\n  function renderPanes/)?.[0] || '';
 const updateAssetSelectorBody = workbench.match(/function selectEdgeUpdateAsset\(assets\) \{\n([\s\S]*?)\n  }/)?.[1] || '';
 requireText(layoutBody && !layoutBody.includes('appendChild'), 'layoutPanes 仍会重挂 iframe DOM');
+requireText(workbench.includes('allow-storage-access-by-user-activation'),
+  'Edge iframe sandbox 未允许用户手势触发 Storage Access API');
 requireText(workbench.includes('chrome.tabs.sendMessage'), '工作台未迁移到 chrome.tabs.sendMessage');
 requireText(!workbench.includes('paneTokens'), '仍保留页面可见 pane token');
 requireText(!content.includes("window.addEventListener('message'"), '问答 content script 仍接收 window.postMessage');
@@ -34,7 +41,8 @@ requireText(!background.includes("url: 'about:blank'") && background.includes('i
   background.includes('chrome.tabs.update(tab.id, { url: WORKBENCH_URL'),
   '工具栏启动未把已有空白/新标签页原地替换为工作台');
 requireText(manifest.permissions?.includes('activeTab'), '工具栏入口缺少安全读取当前活动标签 URL 的 activeTab 权限');
-requireText(!launcher.includes('--no-startup-window') && !/timeout\s+\/t/i.test(launcher) && launcher.includes('--app='),
+requireText(!launcher.includes('--no-startup-window') && !windowsLaunchPS.includes('--no-startup-window') &&
+  !/timeout\s+\/t/i.test(launcher) && windowsLaunchPS.includes('--app='),
   'Windows 启动器仍包含 blank 预热或固定延迟');
 requireText(!edgeE2E.includes('about:blank') && edgeE2E.includes('ensureSingleWorkbenchPage') &&
   !edgeE2E.includes('/json/new?'), 'Edge E2E 仍会从 about:blank 或直接反复新建工作台标签');
@@ -59,6 +67,15 @@ for (const [name, source] of [['qa.sh', qa], ['package-delivery.sh', delivery], 
 requireText(qa.includes('build-edge-extension.sh > /dev/null || FAIL=1'), 'QA 未记录扩展构建失败');
 requireText(qa.includes('background-launch-test.mjs || FAIL=1'), 'QA 未执行工具栏空白页复用回归');
 requireText(qa.includes('palette-regression-test.mjs || FAIL=1'), 'QA 未执行双端三色与 logo 回归');
+requireText(!/\bpause\b/i.test(windowsInstallBat) && !/\bxcopy\b/i.test(windowsInstallBat) &&
+  windowsInstallBat.includes('install.ps1'), 'Windows install.bat 仍会阻塞或使用脆弱复制流程');
+requireText(windowsBootstrap.includes("name -eq 'edge-extension.zip'") &&
+  windowsBootstrap.includes('Get-FileHash') && windowsBootstrap.includes('Invoke-WithRetry'),
+  'Windows 固定入口缺少精确资产、SHA-256 或网络重试');
+requireText(windowsInstallPS.includes('.edge-extension.new-') && windowsInstallPS.includes('.edge-extension.old-') &&
+  windowsInstallPS.includes('NoLaunch') && windowsInstallPS.includes('NoShortcuts'),
+  'Windows 本地安装器缺少原子替换或无人值守参数');
+requireText(!windowsLaunchPS.includes('--user-data-dir'), 'Windows 启动器不得切换 Edge profile');
 requireText(updaterCaller.includes('expectedSHA256: rel.dmgSHA256'), 'macOS 更新调用未传递 SHA-256');
 requireText(installer.includes('SHA-256 校验通过') && installer.includes('shasum -a 256'),
   'install.sh 未强制校验 SHA-256');
@@ -88,6 +105,19 @@ if (!updateAssetSelectorBody) {
   }
 }
 requireText(!workbench.includes("endsWith('.zip')"), 'Edge 更新器仍按任意 .zip 后缀选择资产');
+requireText(workbench.includes('chrome.runtime.requestUpdateCheck()') &&
+  workbench.includes('chrome.runtime.onUpdateAvailable?.addListener') &&
+  workbench.includes('chrome.runtime.reload()'),
+  'Edge 商店版缺少原生检查、就绪事件或一键重载更新链路');
+requireText(distribution.channel === 'sideload' &&
+  workbench.includes("distributionChannel === 'edge-addons'") &&
+  /["']install-windows\.ps1["']/.test(release),
+  'Edge 分发渠道标记或与 Release 同步的 Windows 引导器缺失');
+requireText(manifest.host_permissions?.includes('https://github.com/*') &&
+  workbench.includes("crypto.subtle.digest('SHA-256'") &&
+  workbench.includes('expectedEdgeAssetSHA256') && workbench.includes('new AbortController()') &&
+  workbench.includes('timeoutMs: 60000') && workbench.includes("return await response.blob()"),
+  'Edge 侧载更新缺少 GitHub 下载权限或 SHA-256 强校验');
 
 if (fail.length) {
   console.error('❌ 安全回归失败：\n- ' + fail.join('\n- '));

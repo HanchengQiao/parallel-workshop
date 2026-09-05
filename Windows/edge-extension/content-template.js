@@ -4,7 +4,7 @@
 (async () => {
   if (window.__wb_content_installed) return;
   const HOSTS = [
-    'chat.deepseek.com', 'www.kimi.com', 'kimi.moonshot.cn', 'www.moonshot.cn', 'www.tongyi.com', 'www.qianwen.com',
+    'www.doubao.com', 'doubao.com', 'chat.deepseek.com', 'www.kimi.com', 'kimi.moonshot.cn', 'www.moonshot.cn', 'www.tongyi.com', 'www.qianwen.com',
     'yiyan.baidu.com', 'wenxin.baidu.com', 'chatgpt.com', 'chat.openai.com'
   ];
   if (!HOSTS.some(h => location.hostname === h || location.hostname.endsWith('.' + h))) return;

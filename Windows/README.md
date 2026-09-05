@@ -2,19 +2,19 @@
 
 > 本目录是 **Windows 产品入口**。macOS 用户请使用仓库根目录下 `macOS/` 目录（或直接执行 `install.sh`）。
 
-> v0.2.2 是当前稳定版；v0.2.0 存在 DeepSeek 微信扫码回调缺陷，不建议继续分发。
+> v0.3.0 是当前稳定版。
 
-## 从 GitHub 直接下载安装（命令行，Windows 10/11 自带 curl.exe 与 tar）
+本版重点优化 Windows 下载与安装：固定命令获取最新版，下载限时重试、强制校验 SHA-256，支持中文和空格路径，安装无需等待按键。新增豆包，并保存平台选择、分页、缩放与 DeepSeek 模型选择；启动直接进入工作台，窗格随窗口宽度调整。
 
-```bat
-set VERSION=0.2.2
-curl.exe -LO https://github.com/porcelaintech/parallel-workshop/releases/download/v%VERSION%/edge-extension.zip
-tar -xf edge-extension.zip
-cd edge-extension
-install.bat
+## 从 GitHub 一键安装最新版
+
+在 PowerShell 中直接执行下面整行（不要再次包进 `powershell.exe -Command`）：
+
+```powershell
+$pwbInstaller = Join-Path $env:TEMP ('ParallelWorkbench-install-' + [Guid]::NewGuid().ToString('N') + '.ps1'); try { & curl.exe --fail --location --silent --show-error --retry 3 --retry-max-time 90 --connect-timeout 10 --max-time 60 'https://github.com/porcelaintech/parallel-workshop/releases/latest/download/install-windows.ps1' --output $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "安装器下载失败（curl 退出码 $LASTEXITCODE）" }; & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "平行工作台安装失败（退出码 $LASTEXITCODE）" } } finally { Remove-Item -LiteralPath $pwbInstaller -Force -ErrorAction SilentlyContinue }
 ```
 
-`install.bat` 会自动：复制扩展到本地目录 → 创建桌面与开始菜单快捷方式 → 复制路径到剪贴板 → 打开 edge://extensions。随后按弹窗提示：开启「开发人员模式」→ 「加载解压缩的扩展」→ 粘贴剪贴板路径。
+命令会自动查找最新稳定 Release、精确下载 `edge-extension.zip`、重试网络、校验 SHA-256、解压、原子安装、创建快捷方式并打开 Edge 扩展管理页。首次侧载只需按提示完成开发人员模式与“加载解压缩的扩展”。
 
 
 
@@ -27,6 +27,8 @@ install.bat
 
 两者共用同一套适配器/注入核心（`Sources/WorkbenchCore/Resources/` → `scripts/build-edge-extension.sh` 同步）。
 
+当前内置平台：ChatGPT、DeepSeek、豆包、Kimi、通义千问、文心一言。
+
 ## 在 Windows 上安装（开发者模式侧载）
 
 1. 把整个 `edge-extension/` 目录复制到 Windows 机器（或解压 `build/edge-extension.zip`）
@@ -35,7 +37,7 @@ install.bat
 4. 点「加载解压缩的扩展」→ 选择 `edge-extension` 目录
 5. 点工具栏的「平行工作台」图标 → 弹出独立工作台窗口（1500×950，应用式窗口）
 
-> 日常使用前：先在 Edge 里正常登录各平台（chat.deepseek.com / kimi.com 等），扩展里的 pane 直接继承这些登录态。
+> 日常使用前：先在 Edge 里正常登录各平台（chat.deepseek.com / doubao.com / kimi.com 等），扩展里的 pane 直接继承这些登录态。
 
 ## 自动测试（已在 Mac 上的 Edge 真机通过）
 
@@ -43,7 +45,7 @@ install.bat
 
 - [x] 扩展加载、工作台窗口打开
 - [x] 各平台 iframe 嵌入（CSP 剥离规则生效）
-- [x] 勾选框交互（取消勾选即隐藏）与「1-3 / 5」分页
+- [x] 勾选框交互（取消勾选即隐藏）与「1-3 / 6」分页
 - [x] 状态角标（就绪/未登录/未找到输入框/无响应）
 - [x] 统一输入 → 注入发送 → 平台对话区出现消息气泡
 

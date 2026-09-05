@@ -2,7 +2,9 @@
 
 > 本目录是 **macOS 产品入口**。Windows/Edge 用户请使用仓库根目录下 `Windows/` 目录。
 
-> v0.2.2 是当前稳定版；一键安装脚本只接受 GitHub 的最新稳定 Release，不会安装预发布资产。
+> v0.3.0 是当前稳定版。一键安装脚本自动获取最新稳定 Release。
+
+本版新增豆包，保存平台选择、分页位置、逐平台缩放与 DeepSeek 上次模型选择，并改进窗格布局和更新流程。Windows 版同步优化了下载与安装流程。
 
 ## 从 GitHub 直接下载安装（命令行）
 
@@ -17,7 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/porcelaintech/parallel-workshop/mai
 **方式二：手动下载 DMG**
 
 ```bash
-VERSION=0.2.2
+VERSION=0.3.0
 curl -LO "https://github.com/porcelaintech/parallel-workshop/releases/download/v${VERSION}/ParallelWorkbench-${VERSION}.dmg"
 open "ParallelWorkbench-${VERSION}.dmg"
 # 把「平行工作台」拖进 Applications 即可

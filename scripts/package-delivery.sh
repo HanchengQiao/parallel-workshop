@@ -34,9 +34,9 @@ mkdir -p "$STAGE/Windows/edge-extension"
 # 源代码（排除构建产物）
 rsync -a --exclude '.build' --exclude 'node_modules' --exclude '.tester-bin' --exclude 'test-output' \
   --exclude '.DS_Store' --exclude 'build' --exclude '__pycache__' \
-  Sources scripts Windows/edge-extension Package.swift README.md DELIVERY.md RELEASE.md install.sh LICENSE \
+  Sources scripts Windows/edge-extension Package.swift README.md DELIVERY.md RELEASE.md install.sh install-windows.ps1 AGENT_INSTALL_PROMPT.md LICENSE \
   homebrew npm-launcher .gitignore "$STAGE/源代码/" 2>/dev/null || \
-  (cd "$(pwd)" && tar --exclude='.build' --exclude='node_modules' --exclude='.tester-bin' --exclude='test-output' --exclude='.DS_Store' --exclude='build' --exclude='__pycache__' -cf - Sources scripts Windows/edge-extension Package.swift README.md DELIVERY.md RELEASE.md install.sh LICENSE homebrew npm-launcher .gitignore | (cd "$STAGE/源代码" && tar -xf -))
+  (cd "$(pwd)" && tar --exclude='.build' --exclude='node_modules' --exclude='.tester-bin' --exclude='test-output' --exclude='.DS_Store' --exclude='build' --exclude='__pycache__' -cf - Sources scripts Windows/edge-extension Package.swift README.md DELIVERY.md RELEASE.md install.sh install-windows.ps1 AGENT_INSTALL_PROMPT.md LICENSE homebrew npm-launcher .gitignore | (cd "$STAGE/源代码" && tar -xf -))
 
 # 主文档（单独文件）
 cp "交付说明/产品说明与代码解读.md" "$STAGE/产品说明与代码解读.md"

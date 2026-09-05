@@ -18,11 +18,22 @@ final class WorkbenchModel: ObservableObject {
     @Published var focusedID: String? = nil
     @Published var windowStart: Int = 0
     private var cancellables: Set<AnyCancellable> = []
+    private let preferencesStore: WorkbenchPreferencesStore
 
-    init() {
+    init(preferencesStore: WorkbenchPreferencesStore = WorkbenchPreferencesStore()) {
+        self.preferencesStore = preferencesStore
         let adapters = Adapter.loadAll()
         panes = adapters.map { PaneController(adapter: $0) }
-        enabled = Set(adapters.map(\.id))
+        let adapterIDs = adapters.map(\.id)
+        let preferences = preferencesStore.load(validAdapterIDs: adapterIDs)
+        enabled = Set(preferences.enabledAdapterIDs)
+        for pane in panes {
+            pane.restoreZoom(preferences.zoomByAdapterID[pane.adapter.id])
+        }
+        windowStart = preferences.pageStart(
+            validAdapterIDs: adapterIDs,
+            maximumVisibleCount: Self.maxVisiblePanes
+        )
         print("已加载适配器: \(adapters.map(\.name).joined(separator: "、"))")
         if adapters.isEmpty {
             statusText = "未加载到适配器配置（资源缺失，请查看日志）"
@@ -31,8 +42,47 @@ final class WorkbenchModel: ObservableObject {
             pane.$status
                 .sink { [weak self] _ in self?.updateLoginProgress() }
                 .store(in: &cancellables)
+            pane.$zoom
+                .dropFirst()
+                .sink { [weak self] zoom in
+                    self?.persistPreferences(zoomOverride: (pane.adapter.id, zoom))
+                }
+                .store(in: &cancellables)
         }
+        Publishers.CombineLatest($enabled, $windowStart)
+            .dropFirst()
+            .sink { [weak self] enabled, windowStart in
+                self?.persistPreferences(enabledOverride: enabled, windowStartOverride: windowStart)
+            }
+            .store(in: &cancellables)
         updateLoginProgress()
+    }
+
+    /// 仅保存明确允许恢复的布局偏好；问题、附件、焦点与网页凭证均不进入此存储。
+    private func persistPreferences(
+        enabledOverride: Set<String>? = nil,
+        windowStartOverride: Int? = nil,
+        zoomOverride: (id: String, value: Double)? = nil
+    ) {
+        let adapterIDs = panes.map { $0.adapter.id }
+        let enabledValue = enabledOverride ?? enabled
+        let enabledIDs = adapterIDs.filter { enabledValue.contains($0) }
+        let requestedStart = windowStartOverride ?? windowStart
+        let start = min(max(requestedStart, 0), max(enabledIDs.count - Self.maxVisiblePanes, 0))
+        let anchor = enabledIDs.indices.contains(start) ? enabledIDs[start] : nil
+
+        var zooms = Dictionary(uniqueKeysWithValues: panes.map { ($0.adapter.id, $0.zoom) })
+        if let zoomOverride {
+            zooms[zoomOverride.id] = zoomOverride.value
+        }
+        preferencesStore.save(
+            WorkbenchPreferences(
+                enabledAdapterIDs: enabledIDs,
+                pageAnchorAdapterID: anchor,
+                zoomByAdapterID: zooms
+            ),
+            validAdapterIDs: adapterIDs
+        )
     }
 
     /// 就绪进度：输入框可用窗格数 / 总数；游客模式就绪不等同于已登录。

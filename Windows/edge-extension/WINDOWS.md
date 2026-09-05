@@ -1,6 +1,8 @@
 # Windows 版：Edge 扩展安装与使用指南
 
-> v0.2.2 是当前稳定版；v0.2.0 有 DeepSeek 微信扫码回调缺陷，不建议继续分发。
+> v0.3.0 是当前稳定版。
+
+本版优化下载与安装流程：固定命令获取最新版，增加限时重试、SHA-256 校验、中文/空格路径支持和原子替换，取消等待按键。新增豆包，记住平台选择、分页、缩放与 DeepSeek 模型选择，并改进启动与响应式布局。
 
 ## 产品形态对照
 
@@ -11,6 +13,18 @@
 
 两者共用同一套适配器/注入核心（`Sources/WorkbenchCore/Resources/` → `scripts/build-edge-extension.sh` 同步）。
 
+当前内置平台：ChatGPT、DeepSeek、豆包、Kimi、通义千问、文心一言。
+
+## 一键安装最新稳定版
+
+请在 PowerShell 中直接执行下面整行，不要再次包进 `powershell.exe -Command`。
+
+```powershell
+$pwbInstaller = Join-Path $env:TEMP ('ParallelWorkbench-install-' + [Guid]::NewGuid().ToString('N') + '.ps1'); try { & curl.exe --fail --location --silent --show-error --retry 3 --retry-max-time 90 --connect-timeout 10 --max-time 60 'https://github.com/porcelaintech/parallel-workshop/releases/latest/download/install-windows.ps1' --output $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "安装器下载失败（curl 退出码 $LASTEXITCODE）" }; & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $pwbInstaller; if ($LASTEXITCODE -ne 0) { throw "平行工作台安装失败（退出码 $LASTEXITCODE）" } } finally { Remove-Item -LiteralPath $pwbInstaller -Force -ErrorAction SilentlyContinue }
+```
+
+安装器会自动完成版本查询、重试下载、SHA-256 校验、解压、原子复制与快捷方式创建，不需要管理员权限，也不会等待“按任意键”而卡住 Agent。
+
 ## 在 Windows 上安装（开发者模式侧载）
 
 1. 把整个 `edge-extension/` 目录复制到 Windows 机器（或解压 `build/edge-extension.zip`）
@@ -19,7 +33,7 @@
 4. 点「加载解压缩的扩展」→ 选择 `edge-extension` 目录
 5. 点工具栏的「平行工作台」图标 → 弹出独立工作台窗口（1500×950，应用式窗口）
 
-> 日常使用前：先在 Edge 里正常登录各平台（chat.deepseek.com / kimi.com 等），扩展里的 pane 直接继承这些登录态。
+> 日常使用前：先在 Edge 里正常登录各平台（chat.deepseek.com / doubao.com / kimi.com 等），扩展里的 pane 直接继承这些登录态。
 
 ## 自动测试（已在 Mac 上的 Edge 真机通过）
 
@@ -27,7 +41,7 @@
 
 - [x] 扩展加载、工作台窗口打开
 - [x] 各平台 iframe 嵌入（CSP 剥离规则生效）
-- [x] 勾选框交互（取消勾选即隐藏）与「1-3 / 5」分页
+- [x] 勾选框交互（取消勾选即隐藏）与「1-3 / 6」分页
 - [x] 状态角标（就绪/未登录/未找到输入框/无响应）
 - [x] 统一输入 → 注入发送 → 平台对话区出现消息气泡
 

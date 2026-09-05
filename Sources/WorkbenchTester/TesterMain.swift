@@ -30,6 +30,21 @@ struct WorkbenchTester {
             exit(Int32(await SelfTest.run()))
         }
 
+        // 更新器集成测试：由 PWB_INSTALL_DEST 指向隔离临时目录，不启动 GUI。
+        if let i = args.firstIndex(of: "--update-smoke") {
+            args.remove(at: i)
+            guard let urlIndex = args.firstIndex(where: { $0.hasPrefix("--update-url=") }),
+                  let shaIndex = args.firstIndex(where: { $0.hasPrefix("--update-sha=") }) else {
+                print("用法：--update-smoke --update-url=<DMG URL> --update-sha=<SHA256>")
+                exit(2)
+            }
+            let url = String(args[urlIndex].dropFirst("--update-url=".count))
+            let sha = String(args[shaIndex].dropFirst("--update-sha=".count))
+            let ok = await Updater.install(dmgURL: url, expectedSHA256: sha) { print("[update] \($0)") }
+            print(ok ? "✅ 更新器安装链路通过" : "❌ 更新器安装链路失败")
+            exit(ok ? 0 : 1)
+        }
+
         // 单实例守护：与 GUI 同名共享 WebKit 数据目录，并发会损坏登录态
         if otherInstanceRunning() {
             print("⚠️ 检测到 GUI（ParallelWorkbench）正在运行。并发共享 WebKit 存储会损坏登录态，请先退出 GUI 再运行测试。")

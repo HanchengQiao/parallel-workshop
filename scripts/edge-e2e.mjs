@@ -1,4 +1,4 @@
-// Edge 扩展端到端测试（macOS 上的 Edge 真机验证，与 Windows 行为一致）
+// Edge 扩展端到端测试（macOS 上验证共享浏览器行为；Windows 安装链路另由 Windows CI 覆盖）
 // 前置：Edge 以调试模式运行并加载扩展：
 //   pkill -f wb-edge-live; rm -rf /tmp/wb-edge-live
 //   "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" \
@@ -70,9 +70,48 @@ if ([ui.bodyWidth, ui.topbarWidth, ui.controlsWidth, ui.panesWidth].some(width =
   process.exit(1);
 }
 
+// 1.0.1 尺寸矩阵：覆盖窄窗、中窗和宽窗，锁定 1/2/3 窗格与零横向空白。
+const responsiveResults = [];
+for (const [width, expected] of [[640, 1], [900, 2], [1440, 3]]) {
+  await cdpCommand(page.webSocketDebuggerUrl, 'Emulation.setDeviceMetricsOverride', {
+    width,
+    height: 900,
+    deviceScaleFactor: 1,
+    mobile: false
+  });
+  // Six remote pages can delay the next animation frame during cold startup.
+  // Wait for the actual layout result, with a bounded deadline, before measuring.
+  const resizeDeadline = Date.now() + 5000;
+  while (Date.now() < resizeDeadline) {
+    const visible = await cdp(page.webSocketDebuggerUrl,
+      `document.querySelectorAll('.pane:not(.offscreen)').length`);
+    if (visible === expected) break;
+    await sleep(100);
+  }
+  const result = JSON.parse(await cdp(page.webSocketDebuggerUrl, `JSON.stringify({
+    width: document.documentElement.clientWidth,
+    bodyWidth: document.body.getBoundingClientRect().width,
+    scrollWidth: document.documentElement.scrollWidth,
+    visiblePanes: document.querySelectorAll('.pane:not(.offscreen)').length,
+    topbarWidth: document.getElementById('topbar').getBoundingClientRect().width,
+    controlsWidth: document.getElementById('controls').getBoundingClientRect().width,
+    panesWidth: document.getElementById('panes').getBoundingClientRect().width
+  })`));
+  responsiveResults.push(result);
+  const shellWidths = [result.bodyWidth, result.topbarWidth, result.controlsWidth, result.panesWidth];
+  if (result.width !== width || result.visiblePanes !== expected ||
+      shellWidths.some(value => Math.abs(value - width) > 1) || result.scrollWidth > width + 1) {
+    console.log(`❌ ${width}px 响应式布局错误：${JSON.stringify(result)}`);
+    process.exit(1);
+  }
+}
+await cdpCommand(page.webSocketDebuggerUrl, 'Emulation.clearDeviceMetricsOverride');
+await sleep(200);
+console.log('响应式尺寸矩阵:', JSON.stringify(responsiveResults));
+
 // 1.1 翻页不得重建任何 iframe 浏览上下文。
 const preserved = JSON.parse(await cdp(page.webSocketDebuggerUrl, `(async()=>{
-  const ids=['chatgpt','deepseek','kimi','tongyi','yiyan'];
+  const ids=['chatgpt','deepseek','kimi','tongyi','yiyan','doubao'];
   const refs=Object.fromEntries(ids.map(id=>[id,document.getElementById('frame-'+id).contentWindow]));
   document.getElementById('page-right').click();
   await new Promise(r=>setTimeout(r,150));

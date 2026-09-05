@@ -4,6 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 V="${1:?用法: bash scripts/bump-version.sh X.Y.Z}"
+[[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "❌ 无效版本号: $V"; exit 1; }
 
 python3 - "$V" <<'EOF'
 import json, sys, re

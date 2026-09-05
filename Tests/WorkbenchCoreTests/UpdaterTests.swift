@@ -29,4 +29,11 @@ final class UpdaterTests: XCTestCase {
         XCTAssertFalse(Updater.isNewer("0.2.0", than: "0.2.0"))
         XCTAssertFalse(Updater.isNewer("0.1.9", than: "0.2.0"))
     }
+
+    func testDMGAssetVersionParsingFailsClosed() {
+        XCTAssertEqual(Updater.versionFromDMGAssetName("ParallelWorkbench-1.2.3.dmg"), "1.2.3")
+        XCTAssertNil(Updater.versionFromDMGAssetName("ParallelWorkbench-latest.dmg"))
+        XCTAssertNil(Updater.versionFromDMGAssetName("edge-extension.zip"))
+        XCTAssertNil(Updater.versionFromDMGAssetName("ParallelWorkbench-1.2.dmg"))
+    }
 }
